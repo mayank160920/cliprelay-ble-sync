@@ -69,7 +69,6 @@ class ClipShareService : Service() {
                     Log.d(TAG, "Bluetooth disabled — stopping GATT server and advertiser")
                     advertiser.stop()
                     gattServer.stop()
-                    saveConnectedDeviceName(null)
                     sendConnectionBroadcast(false)
                 }
             }
@@ -110,7 +109,6 @@ class ClipShareService : Service() {
                             incomingDataReassembler.reset()
                             pendingInboundHashFromMetadata = null
                         }
-                        saveConnectedDeviceName(null)
                     } else if (deviceName != null) {
                         saveConnectedDeviceName(deviceName)
                     }
@@ -170,6 +168,7 @@ class ClipShareService : Service() {
         } else {
             encryptionKey = null
             advertiser.deviceTag = null
+            saveConnectedDeviceName(null)
         }
     }
 
