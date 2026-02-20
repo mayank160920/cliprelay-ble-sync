@@ -4,7 +4,11 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.bluetooth.BluetoothAdapter
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.IBinder
 import android.os.ParcelUuid
 import android.util.Log
@@ -44,6 +48,28 @@ class ClipShareService : Service() {
 
     private val transferExecutor = Executors.newSingleThreadExecutor()
     private val incomingDataReassembler = ChunkReassembler()
+
+    private val bluetoothStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                BluetoothAdapter.STATE_ON -> {
+                    Log.d(TAG, "Bluetooth enabled — restarting GATT server and advertiser")
+                    gattServer.stop()
+                    gattServer.start()
+                    advertiser.stop()
+                    advertiser.start()
+                    sendConnectionBroadcast(false)
+                }
+                BluetoothAdapter.STATE_OFF -> {
+                    Log.d(TAG, "Bluetooth disabled — stopping GATT server and advertiser")
+                    advertiser.stop()
+                    gattServer.stop()
+                    sendConnectionBroadcast(false)
+                }
+            }
+        }
+    }
 
     @Volatile
     private var encryptionKey: SecretKey? = null
@@ -91,9 +117,11 @@ class ClipShareService : Service() {
         startForeground(1001, buildNotification())
         gattServer.start()
         advertiser.start()
+        registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
     }
 
     override fun onDestroy() {
+        unregisterReceiver(bluetoothStateReceiver)
         advertiser.stop()
         gattServer.stop()
         transferExecutor.shutdown()

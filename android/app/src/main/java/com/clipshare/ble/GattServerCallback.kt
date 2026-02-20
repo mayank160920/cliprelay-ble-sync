@@ -24,6 +24,10 @@ class GattServerCallback(
         connectedDevices.toList()
     }
 
+    fun clearConnectedDevices() = synchronized(connectedDevices) {
+        connectedDevices.clear()
+    }
+
     override fun onConnectionStateChange(device: BluetoothDevice?, status: Int, newState: Int) {
         if (device == null) {
             return

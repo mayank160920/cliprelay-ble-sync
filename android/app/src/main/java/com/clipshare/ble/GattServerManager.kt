@@ -109,6 +109,7 @@ class GattServerManager(
     fun stop() {
         server?.close()
         callback.server = null
+        callback.clearConnectedDevices()
         server = null
         availableCharacteristic = null
         dataCharacteristic = null

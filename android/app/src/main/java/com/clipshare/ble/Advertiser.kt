@@ -13,13 +13,14 @@ class Advertiser(private val serviceUuid: ParcelUuid) {
         private const val TAG = "Advertiser"
     }
 
-    private val advertiser: BluetoothLeAdvertiser? = BluetoothAdapter.getDefaultAdapter()?.bluetoothLeAdvertiser
     private var callback: AdvertiseCallback? = null
 
     var deviceTag: ByteArray? = null
 
     fun start() {
-        val instance = advertiser ?: return
+        // Obtain the advertiser reference lazily so it's always current, even after a
+        // Bluetooth toggle (the adapter reference captured at construction time goes stale).
+        val instance = BluetoothAdapter.getDefaultAdapter()?.bluetoothLeAdvertiser ?: return
         if (callback != null) {
             return
         }
@@ -58,8 +59,8 @@ class Advertiser(private val serviceUuid: ParcelUuid) {
     }
 
     fun stop() {
-        val instance = advertiser ?: return
-        callback?.let { instance.stopAdvertising(it) }
+        val instance = BluetoothAdapter.getDefaultAdapter()?.bluetoothLeAdvertiser
+        callback?.let { instance?.stopAdvertising(it) }
         callback = null
     }
 
