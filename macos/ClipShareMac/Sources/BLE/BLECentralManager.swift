@@ -200,7 +200,12 @@ final class BLECentralManager: NSObject {
         let delay = reconnectDelay
         reconnectDelay = min(reconnectDelay * 2, 30)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.scan()
+            guard let self, self.centralManager.state == .poweredOn else { return }
+            // Stop then restart the scan to reset CoreBluetooth's duplicate filter so
+            // a peripheral that re-appears (e.g. after a phone BT toggle with a new UUID)
+            // is reported again via didDiscover.
+            self.centralManager.stopScan()
+            self.scan()
         }
     }
 
@@ -393,6 +398,17 @@ extension BLECentralManager: CBCentralManagerDelegate {
         pendingInboundHashByPeer.removeValue(forKey: peripheralID)
         assemblerByPeer.removeValue(forKey: peripheralID)
         notifyAllState()
+
+        // Re-queue a connect on the same peripheral object. CoreBluetooth holds this as a
+        // pending request and completes it as soon as the peripheral is available again
+        // (e.g. the phone re-enables Bluetooth). This avoids relying on the scan to
+        // re-discover the peripheral, which won't happen while the duplicate filter is active.
+        if peripheralTokenMap[peripheralID] != nil {
+            connectingPeerIDs.insert(peripheralID)
+            peripheral.delegate = self
+            centralManager.connect(peripheral, options: nil)
+        }
+
         scheduleReconnect()
     }
 }
