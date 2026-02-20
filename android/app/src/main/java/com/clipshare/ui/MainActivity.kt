@@ -23,11 +23,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pairButton: com.google.android.material.button.MaterialButton
     private lateinit var unpairButton: com.google.android.material.button.MaterialButton
     private var isPaired = false
+    private var connectedDeviceName: String? = null
 
     private val connectionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == ClipShareService.ACTION_CONNECTION_STATE) {
                 val connected = intent.getBooleanExtra(ClipShareService.EXTRA_CONNECTED, false)
+                if (connected) {
+                    connectedDeviceName = intent.getStringExtra(ClipShareService.EXTRA_DEVICE_NAME)
+                } else {
+                    connectedDeviceName = null
+                }
                 updateUI(connected)
             }
         }
@@ -90,7 +96,11 @@ class MainActivity : AppCompatActivity() {
     private fun updateUI(connected: Boolean) {
         status.text = when {
             !isPaired -> getString(R.string.status_help)
-            connected -> getString(R.string.status_connected)
+            connected -> {
+                val name = connectedDeviceName
+                if (name != null) getString(R.string.status_connected_to, name)
+                else getString(R.string.status_connected)
+            }
             else -> getString(R.string.status_paired)
         }
         pairButton.visibility = if (isPaired) View.GONE else View.VISIBLE

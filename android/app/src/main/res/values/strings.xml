@@ -10,6 +10,9 @@
     <string name="status_help">Tap "Pair with Mac" and scan the QR code shown on your Mac.</string>
     <string name="status_paired">Paired — waiting for Mac</string>
     <string name="status_connected">Connected</string>
+    <string name="status_connected_to">Connected to %s</string>
+    <string name="toast_sent_to">Sent to %s</string>
+    <string name="toast_sent">Sent to Mac</string>
     <string name="pair_with_mac">Pair with Mac</string>
     <string name="unpair">Unpair</string>
     <string name="share_help">Tip: Use Android’s Share action in other apps to send selected text to your paired Mac.</string>

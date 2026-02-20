@@ -36,6 +36,10 @@ class ClipShareService : Service() {
         const val ACTION_QUERY_CONNECTION = "com.clipshare.action.QUERY_CONNECTION"
         const val EXTRA_TEXT = "extra_text"
         const val EXTRA_CONNECTED = "extra_connected"
+        const val EXTRA_DEVICE_NAME = "extra_device_name"
+
+        const val PREFS_NAME = "clipshare_state"
+        const val KEY_CONNECTED_DEVICE = "connected_device_name"
 
         private const val TAG = "ClipShareService"
         private const val MAX_CLIPBOARD_BYTES = 102_400
@@ -65,6 +69,7 @@ class ClipShareService : Service() {
                     Log.d(TAG, "Bluetooth disabled — stopping GATT server and advertiser")
                     advertiser.stop()
                     gattServer.stop()
+                    saveConnectedDeviceName(null)
                     sendConnectionBroadcast(false)
                 }
             }
@@ -99,14 +104,17 @@ class ClipShareService : Service() {
                         handleIncomingDataFrame(bytes)
                     }
                 },
-                onDeviceConnectionChanged = { isConnected ->
+                onDeviceConnectionChanged = { isConnected, deviceName ->
                     if (!isConnected) {
                         transferExecutor.execute {
                             incomingDataReassembler.reset()
                             pendingInboundHashFromMetadata = null
                         }
+                        saveConnectedDeviceName(null)
+                    } else if (deviceName != null) {
+                        saveConnectedDeviceName(deviceName)
                     }
-                    sendConnectionBroadcast(isConnected)
+                    sendConnectionBroadcast(isConnected, if (isConnected) deviceName else null)
                 }
             )
         )
@@ -143,7 +151,9 @@ class ClipShareService : Service() {
                 advertiser.restart()
             }
             ACTION_QUERY_CONNECTION -> {
-                sendConnectionBroadcast(gattServer.hasConnectedCentral())
+                val connected = gattServer.hasConnectedCentral()
+                val name = if (connected) loadConnectedDeviceName() else null
+                sendConnectionBroadcast(connected, name)
             }
         }
 
@@ -274,12 +284,24 @@ class ClipShareService : Service() {
         return digest.joinToString(separator = "") { "%02x".format(it) }
     }
 
-    private fun sendConnectionBroadcast(connected: Boolean) {
+    private fun sendConnectionBroadcast(connected: Boolean, deviceName: String? = null) {
         val intent = Intent(ACTION_CONNECTION_STATE)
         intent.setPackage(packageName)
         intent.putExtra(EXTRA_CONNECTED, connected)
+        if (deviceName != null) intent.putExtra(EXTRA_DEVICE_NAME, deviceName)
         sendBroadcast(intent)
     }
+
+    private fun saveConnectedDeviceName(name: String?) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        prefs.edit().apply {
+            if (name != null) putString(KEY_CONNECTED_DEVICE, name) else remove(KEY_CONNECTED_DEVICE)
+            apply()
+        }
+    }
+
+    private fun loadConnectedDeviceName(): String? =
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_CONNECTED_DEVICE, null)
 
     private fun buildNotification(): Notification {
         val channelId = "clipshare-service"
