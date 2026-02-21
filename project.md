@@ -1,4 +1,4 @@
-# GreenPaste — Cross-Platform Clipboard Sync (Mac <-> Android)
+# GreenPaste — Cross-Platform Clipboard Sync (Mac ↔ Android)
 
 > Note: "GreenPaste" is a provisional product name. Keep internals generic (`clipboard-sync` / `clipshare`) so branding can be swapped later.
 
@@ -6,51 +6,55 @@
 
 GreenPaste is a clipboard synchronization tool between macOS and Android with an intentionally asymmetric UX:
 
-- Mac -> Android is automatic.
-- Android -> Mac is explicit via Android Share sheet.
+- Mac → Android is automatic.
+- Android → Mac is explicit via Android Share sheet.
 
 Transport is BLE only. There is no cloud relay, server, or internet dependency.
 
 ## Architecture Summary
 
 ```
-┌─────────────────────┐                             ┌──────────────────────┐
-│   macOS Menu Bar    │         BLE (GATT)          │   Android Service    │
-│       App           │◄───────────────────────────►│       + Share Target │
-│                     │                              │                      │
-│  - NSPasteboard     │                              │  - ClipboardManager  │
-│  - CoreBluetooth    │                              │  - BLE GATT Server   │
-│                     │                              │  - Foreground Svc    │
-└─────────────────────┘                              └──────────────────────┘
+┌──────────────────────────┐                             ┌───────────────────────────┐
+│   macOS Menu Bar App     │         BLE (GATT)          │   Android Service         │
+│   (BLE Central)          │◄───────────────────────────►│   (BLE Peripheral/Server) │
+│                          │                              │   + Share Target          │
+│  - NSPasteboard polling  │                              │  - ClipboardManager       │
+│  - CoreBluetooth Central │                              │  - BLE GATT Server        │
+│  - E2E encryption        │                              │  - Foreground Service     │
+│  - QR code pairing       │                              │  - QR code scanner        │
+│  - Status bar menu       │                              │  - Share receiver toast   │
+└──────────────────────────┘                              └───────────────────────────┘
 ```
 
 ### Transport
 
 - BLE only.
-- Scope is text-only clipboard sync (up to 100 KiB per transfer).
-- Throughput requirements are modest for text, so reliability and simplicity take priority over maximizing bandwidth.
+- Text-only clipboard sync (up to 100 KiB per transfer).
+- Chunk size: 509 bytes per BLE frame.
+- Throughput requirements are modest for text; reliability and simplicity take priority over bandwidth.
 
 ## Clipboard Flow
 
-### Mac -> Android (fully automatic)
+### Mac → Android (fully automatic)
 
-1. macOS app polls `NSPasteboard.changeCount` (default 500 ms, configurable constant).
-2. On change, app reads text, computes hash, and prepares transfer metadata.
-3. Mac writes metadata to the `Clipboard Available` characteristic.
-4. Mac sends chunked payload frames on the `Clipboard Data` characteristic.
-5. Android reassembles all chunks atomically, validates size/hash, then writes to `ClipboardManager`.
+1. macOS app polls `NSPasteboard.changeCount` (default 500 ms, configurable via `CLIPSHARE_POLL_INTERVAL_MS` env var, minimum 100 ms).
+2. On change, reads text, computes SHA-256 hash, deduplicates against last sent hash.
+3. Encrypts plaintext with AES-256-GCM using the shared key derived from the pairing token.
+4. Writes metadata JSON to the `Clipboard Available` characteristic.
+5. Sends chunked encrypted payload on the `Clipboard Data` characteristic (header frame + 509-byte chunk frames with 10 ms inter-frame delay).
+6. Android reassembles all chunks atomically, verifies hash against metadata, decrypts, deduplicates, then writes to `ClipboardManager`.
 
-### Android -> Mac (explicit share action)
+### Android → Mac (explicit share action)
 
 1. User taps Share on Android text content and selects GreenPaste.
-2. Android service receives `ACTION_SEND` text.
-3. Android sends metadata notification (`Clipboard Available`) and chunked data frames (`Clipboard Data`).
-4. macOS reassembles atomically and writes to `NSPasteboard`.
-5. macOS posts a brief "Clipboard received" notification.
+2. `ShareReceiverActivity` receives `ACTION_SEND`, forwards text to `ClipShareService`.
+3. A toast shows "Sent to \<device_name\>" (e.g. "Sent to christian's Laptop").
+4. Service encrypts, chunks, and sends metadata + data frames via BLE notifications.
+5. macOS reassembles, decrypts, writes to `NSPasteboard`, and posts a user notification ("Clipboard received from Android" with text preview).
 
 Why explicit on Android: Android 10+ blocks background clipboard reads for privacy; Share sheet is the sanctioned path.
 
-## BLE Protocol Design (MVP)
+## BLE Protocol Design
 
 ### GATT Service
 
@@ -61,23 +65,23 @@ Characteristics:
 
 1) Clipboard Available (bidirectional signaling)
    UUID: c10b0002-1234-5678-9abc-def012345678
-   Properties: READ, WRITE, NOTIFY
+   Properties: READ, WRITE, WRITE_NO_RESPONSE, NOTIFY
    Value: UTF-8 JSON metadata
-   Example: {"hash":"<sha256>","size":123,"type":"text/plain","tx_id":"<id>"}
+   Example: {"hash":"<sha256>","size":123,"type":"text/plain","tx_id":"<uuid>"}
 
 2) Clipboard Data (bidirectional transfer)
    UUID: c10b0003-1234-5678-9abc-def012345678
-   Properties: READ, WRITE, NOTIFY
+   Properties: READ, WRITE, WRITE_NO_RESPONSE, NOTIFY
    Value: Chunk header + chunk frames
 ```
 
 Chunking format:
 
 - Header frame (JSON): `{"tx_id":"...","total_chunks":N,"total_bytes":M,"encoding":"utf-8"}`
-- Chunk frame: `[2-byte big-endian chunk_index][payload_bytes]`
-- Payload limit: 100 KiB plain UTF-8 text.
+- Chunk frame: `[2-byte big-endian chunk_index][payload_bytes]` (max 509 bytes payload per chunk)
+- Payload limit: 100 KiB plain UTF-8 text (102,400 bytes).
 
-Transfer reliability rule:
+Transfer reliability:
 
 - Transfers are atomic.
 - If disconnect or framing failure occurs before all chunks are received, discard the partial transfer.
@@ -87,129 +91,126 @@ Transfer reliability rule:
 
 - macOS acts as BLE Central.
 - Android acts as BLE Peripheral / GATT Server and advertises continuously while foreground service runs.
-- Reconnect with exponential backoff on macOS (1 s, 2 s, 4 s, 8 s, max 30 s).
-- Pair once via OS-native BLE Secure Connections; reconnect automatically afterward.
-
-## Platform Implementation Details
-
-### macOS (Swift)
-
-App type: menu bar app (no dock icon, no main window).
-
-Responsibilities:
-
-- Monitor pasteboard changes (polling).
-- Discover/connect to Android BLE GATT server.
-- Send/receive metadata and chunked frames.
-- Reassemble inbound transfers atomically.
-- Write received text to clipboard.
-
-Key APIs:
-
-- `NSPasteboard.general.changeCount`
-- `NSPasteboard.general.string(forType: .string)`
-- `NSPasteboard.general.setString(_:forType:)`
-- `CBCentralManager`, `CBPeripheral`
-- `UNUserNotificationCenter`
-
-Permissions:
-
-- Bluetooth (`NSBluetoothAlwaysUsageDescription`)
-- Notifications
-
-### Android (Kotlin)
-
-Responsibilities:
-
-- Foreground service hosts BLE GATT server and advertising.
-- Share target receives text from Android apps.
-- Receive Mac transfers and write to clipboard.
-- Publish Android->Mac transfers over BLE.
-
-AndroidManifest highlights:
-
-```xml
-<uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-<uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-<activity android:name=".ui.ShareReceiverActivity" android:exported="true">
-    <intent-filter>
-        <action android:name="android.intent.action.SEND" />
-        <category android:name="android.intent.category.DEFAULT" />
-        <data android:mimeType="text/*" />
-    </intent-filter>
-</activity>
-
-<service android:name=".service.ClipShareService"
-         android:foregroundServiceType="connectedDevice" />
-```
+- Android advertisement includes service UUID in primary ad, and device name + manufacturer data (8-byte device tag) in scan response.
+- macOS identifies paired Android devices by matching the 8-byte device tag (first 8 bytes of SHA-256 of pairing token) in manufacturer data.
+- Reconnect with exponential backoff on macOS (1 s → 2 s → 4 s → 8 s → max 30 s), resets on Bluetooth toggle.
+- BLE stack recovery: both platforms detect Bluetooth toggle and restart GATT/advertising when Bluetooth re-enables.
 
 ## Security
 
 ### Pairing
 
-- Use OS-native BLE Secure Connections pairing (numeric comparison / confirmation dialogs).
-- Do not implement custom QR pairing or custom pairing token protocol for MVP.
+- QR-code-based pairing: Mac generates a 256-bit random token, encodes it as a QR code URI.
+- URI format: `greenpaste://pair?t=<64-char-hex-token>&n=<mac-computer-name>`
+- Android scans QR code, validates and stores the token.
+- Both sides derive an identical AES-256 key from the shared token.
+- Device identification: first 8 bytes of SHA-256(token) used as a device tag in BLE manufacturer data for mutual recognition.
 
-### Encryption Model (MVP)
+### Encryption
 
-- Rely on BLE link-layer encryption after pairing/bonding.
-- No extra app-layer encryption in MVP.
-- Revisit app-layer E2E only if threat model expands (for example relay/cloud support or multi-hop transport).
+- App-layer E2E encryption on every transfer using AES-256-GCM.
+- Key derivation: `SHA-256(token_bytes)` → 256-bit AES key.
+- Nonce: 12 bytes generated per encryption (prepended to ciphertext).
+- Authenticated associated data (AAD): `"greenpaste-v1"`.
+- Ciphertext format: `[12-byte nonce][ciphertext + 16-byte GCM tag]`.
 
 ### Storage
 
-- Do not persist clipboard payloads to disk.
-- Keep transfer state in memory only.
+- Pairing tokens stored securely:
+  - macOS: Keychain (`KeychainStore`)
+  - Android: `EncryptedSharedPreferences` (AES-256-GCM), with fallback to standard SharedPreferences
+- Clipboard payloads are never persisted to disk; transfer state is in-memory only.
 
-## Content Scope
+## Platform Implementation Details
 
-- Text only (`text/plain`).
-- Maximum payload: ~100 KiB UTF-8 text.
-- Non-text or oversized payloads are ignored.
+### macOS (Swift)
+
+App type: menu bar app (no dock icon, no main window; `LSUIElement = true`).
+
+Source files (`macos/ClipShareMac/Sources/`):
+
+| File | Role |
+|------|------|
+| `App/AppDelegate.swift` | Entry point; orchestrates BLE, clipboard, pairing, notifications, status bar |
+| `App/StatusBarController.swift` | Menu bar UI: connection status, device list, pair/forget actions |
+| `App/ReceiveNotificationManager.swift` | Posts user notifications on clipboard receive |
+| `BLE/BLECentralManager.swift` | BLE scanning, connecting, reconnect, data transfer |
+| `BLE/ChunkAssembler.swift` | Reassembles chunked BLE frames into complete payloads |
+| `Clipboard/ClipboardMonitor.swift` | Polls NSPasteboard every 500 ms, triggers sends on change |
+| `Clipboard/ClipboardWriter.swift` | Writes received text to system pasteboard |
+| `Crypto/E2ECrypto.swift` | AES-256-GCM encrypt/decrypt |
+| `Pairing/PairingManager.swift` | Token generation, key derivation, device tag, keychain persistence |
+| `Pairing/PairingWindowController.swift` | QR code display window for pairing |
+| `Security/KeychainStore.swift` | Keychain read/write helper |
+
+Key APIs: `CBCentralManager`, `CBPeripheral`, `NSPasteboard`, `UNUserNotificationCenter`, `CIQRCodeGenerator`
+
+Menu bar UI:
+- Status icon: green-tinted when connected, gray when disconnected.
+- Menu: paired device list (with connection dots), "Pair New Device..." (⌘N), "Quit" (⌘Q).
+- Each device has a "Forget Device" submenu option.
+
+### Android (Kotlin)
+
+Source files (`android/app/src/main/java/com/clipshare/`):
+
+| File | Role |
+|------|------|
+| `ui/MainActivity.kt` | Main UI; shows pairing status ("Connected to \<name\>"), pair/unpair buttons |
+| `ui/QrScannerActivity.kt` | ML Kit barcode scanner for QR pairing |
+| `ui/ShareReceiverActivity.kt` | Share target; sends text to service, shows "Sent to \<name\>" toast |
+| `service/ClipShareService.kt` | Foreground service; manages BLE server, encryption, data transfer |
+| `service/ClipboardWriter.kt` | Writes received text to system ClipboardManager |
+| `service/BootCompletedReceiver.kt` | Auto-starts service on device boot |
+| `ble/GattServerManager.kt` | GATT server setup and characteristic management |
+| `ble/GattServerCallback.kt` | Handles BLE read/write/notify requests |
+| `ble/Advertiser.kt` | BLE advertising with service UUID + device tag |
+| `ble/ChunkTransfer.kt` | Chunk framing utilities (header + chunk creation) |
+| `ble/ChunkReassembler.kt` | Reassembles inbound chunk frames into complete payloads |
+| `crypto/E2ECrypto.kt` | AES-256-GCM encrypt/decrypt, key derivation, device tag |
+| `pairing/PairingStore.kt` | EncryptedSharedPreferences for token storage |
+| `pairing/PairingUriParser.kt` | Parses `greenpaste://pair?t=...&n=...` URIs |
+
+Permissions: `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT`, `BLUETOOTH_SCAN`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`
+
+Service communication: `ClipShareService` broadcasts `ACTION_CONNECTION_STATE` with connection status and device name; `MainActivity` listens via `BroadcastReceiver`.
 
 ## Build & Tooling
+
+### Build Script
+
+`scripts/build-all.sh` builds both platforms and outputs to `dist/`:
+
+```bash
+./scripts/build-all.sh              # Build both
+./scripts/build-all.sh --mac-only   # macOS only
+./scripts/build-all.sh --android-only  # Android only
+```
+
+Outputs:
+- `dist/GreenPaste.app` — macOS app bundle
+- `dist/greenpaste-debug.apk` — Android debug APK
 
 ### macOS
 
 - Language: Swift
-- Build: Xcode / `swift build`
-- Dependencies: system frameworks only
+- Build: Swift Package Manager (`swift build -c release`)
+- Package path: `macos/ClipShareMac/`
+- Dependencies: system frameworks only (CoreBluetooth, CryptoKit, Foundation, AppKit, UserNotifications)
 
 ### Android
 
 - Language: Kotlin
-- Min SDK / Target SDK: 35
+- Min SDK: 31 / Target SDK: 35
 - Build: Gradle (Kotlin DSL)
-- Dependencies: AndroidX Core + AppCompat + Material
-
-## Implementation Milestones
-
-### Phase 1: Core Sync
-
-1. Android foreground BLE GATT server + advertising.
-2. macOS BLE central scan/connect/reconnect.
-3. Native OS BLE pairing flow.
-4. Mac clipboard polling -> Android clipboard write.
-5. Android Share target -> Mac clipboard write.
-6. Chunk framing/reassembly with atomic transfer discard on failure.
-
-### Phase 2: Polish
-
-1. Connection status UI on both platforms.
-2. Robust reconnection behavior tuning.
-3. Settings for auto-connect and polling interval.
-4. User-visible reason for skipped payloads (optional, lightweight).
+- Dependencies: AndroidX Core + AppCompat + Material, ML Kit Barcode Scanning
 
 ## Known Constraints & Tradeoffs
 
-- Android -> Mac requires explicit Share action (platform privacy constraint).
+- Android → Mac requires explicit Share action (platform privacy constraint).
 - BLE range is local (~10 m typical).
-- Text only.
+- Text only (100 KiB max).
 - macOS clipboard uses polling (`changeCount`) by design.
-- Default polling interval is 500 ms but should remain configurable.
+- Default polling interval is 500 ms (configurable via env var, minimum 100 ms).
 - On transfer interruption/disconnect, partial payloads are discarded.
+- BLE device name is unreliable for display; device name is captured from QR code at pairing time.
