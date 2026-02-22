@@ -17,9 +17,14 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.clipshare.R
 import com.clipshare.pairing.PairingStore
+import com.clipshare.permissions.BlePermissions
 import com.clipshare.service.ClipShareService
 
 class MainActivity : AppCompatActivity() {
+    companion object {
+        private const val PERMISSION_REQUEST_CODE = 100
+    }
+
     private lateinit var status: TextView
     private lateinit var pairButton: com.google.android.material.button.MaterialButton
     private lateinit var unpairButton: com.google.android.material.button.MaterialButton
@@ -99,6 +104,20 @@ class MainActivity : AppCompatActivity() {
         unregisterReceiver(connectionReceiver)
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != PERMISSION_REQUEST_CODE) return
+
+        ensureServiceRunning()
+        val queryIntent = Intent(this, ClipShareService::class.java)
+        queryIntent.action = ClipShareService.ACTION_QUERY_CONNECTION
+        startServiceSafely(queryIntent)
+    }
+
     private fun updateUI(connected: Boolean) {
         status.text = when {
             !isPaired -> getString(R.string.status_help)
@@ -118,6 +137,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startServiceSafely(intent: Intent) {
+        if (!BlePermissions.hasRequiredRuntimePermissions(this)) {
+            return
+        }
+
         val started = runCatching {
             ContextCompat.startForegroundService(this, intent)
         }.isSuccess
@@ -127,15 +150,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestRuntimePermissions() {
-        val permissions = mutableListOf<String>()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            permissions += listOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_ADVERTISE
-            )
-        }
+        val permissions = BlePermissions.requiredRuntimePermissions().toMutableList()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
@@ -148,7 +163,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (missing.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, missing.toTypedArray(), 100)
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), PERMISSION_REQUEST_CODE)
         }
     }
 }

@@ -21,6 +21,7 @@ import com.clipshare.ble.GattServerCallback
 import com.clipshare.ble.GattServerManager
 import com.clipshare.crypto.E2ECrypto
 import com.clipshare.debug.DebugSmokeProbe
+import com.clipshare.permissions.BlePermissions
 import com.clipshare.pairing.PairingStore
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -52,30 +53,21 @@ class ClipShareService : Service() {
 
     private val transferExecutor = Executors.newSingleThreadExecutor()
     private val inboundStateMachine = BleInboundStateMachine()
+    @Volatile
+    private var bleStarted = false
 
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
             when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
                 BluetoothAdapter.STATE_ON -> {
-                    Log.d(TAG, "Bluetooth enabled — restarting GATT server and advertiser")
-                    gattServer.stop()
-                    gattServer.start()
-                    advertiser.stop()
-                    advertiser.start()
-                    transferExecutor.execute {
-                        inboundStateMachine.resetAll()
-                    }
+                    Log.d(TAG, "Bluetooth enabled — ensuring BLE components are running")
+                    ensureBleComponentsState(restartIfRunning = true)
                     sendConnectionBroadcast(false)
                 }
                 BluetoothAdapter.STATE_OFF -> {
                     Log.d(TAG, "Bluetooth disabled — stopping GATT server and advertiser")
-                    advertiser.stop()
-                    gattServer.stop()
-                    transferExecutor.execute {
-                        inboundStateMachine.resetAll()
-                    }
-                    sendConnectionBroadcast(false)
+                    stopBleComponents()
                 }
             }
         }
@@ -124,23 +116,20 @@ class ClipShareService : Service() {
         DebugSmokeProbe.reset(this)
 
         startForeground(1001, buildNotification())
-        gattServer.start()
-        advertiser.start()
         registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+        ensureBleComponentsState()
     }
 
     override fun onDestroy() {
         unregisterReceiver(bluetoothStateReceiver)
-        advertiser.stop()
-        gattServer.stop()
-        transferExecutor.execute {
-            inboundStateMachine.resetAll()
-        }
+        stopBleComponents()
         transferExecutor.shutdown()
         super.onDestroy()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        ensureBleComponentsState()
+
         when (intent?.action) {
             ACTION_PUSH_TEXT -> {
                 val text = intent.getStringExtra(EXTRA_TEXT)
@@ -152,7 +141,16 @@ class ClipShareService : Service() {
             }
             ACTION_RELOAD_PAIRING -> {
                 loadPairingState()
-                advertiser.restart()
+                if (BlePermissions.hasRequiredRuntimePermissions(this)) {
+                    if (bleStarted) {
+                        advertiser.restart()
+                    } else {
+                        ensureBleComponentsState()
+                    }
+                } else {
+                    Log.w(TAG, "BLE runtime permissions missing; stopping BLE components")
+                    stopBleComponents()
+                }
                 transferExecutor.execute {
                     inboundStateMachine.resetAll()
                 }
@@ -168,6 +166,57 @@ class ClipShareService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun ensureBleComponentsState(restartIfRunning: Boolean = false) {
+        if (!BlePermissions.hasRequiredRuntimePermissions(this)) {
+            if (bleStarted) {
+                Log.w(TAG, "BLE runtime permissions missing; stopping BLE components")
+                stopBleComponents()
+            }
+            return
+        }
+
+        if (restartIfRunning && bleStarted) {
+            stopBleComponents(broadcastDisconnected = false)
+        }
+
+        if (bleStarted) {
+            return
+        }
+
+        val started = runCatching {
+            gattServer.start()
+            advertiser.start()
+            true
+        }.getOrElse { error ->
+            bleStarted = false
+            advertiser.stop()
+            gattServer.stop()
+            if (error is SecurityException) {
+                Log.e(TAG, "BLE startup blocked by missing runtime permission", error)
+            } else {
+                Log.e(TAG, "BLE startup failed", error)
+            }
+            false
+        }
+
+        bleStarted = started
+        if (!started) {
+            sendConnectionBroadcast(false)
+        }
+    }
+
+    private fun stopBleComponents(broadcastDisconnected: Boolean = true) {
+        advertiser.stop()
+        gattServer.stop()
+        bleStarted = false
+        transferExecutor.execute {
+            inboundStateMachine.resetAll()
+        }
+        if (broadcastDisconnected) {
+            sendConnectionBroadcast(false)
+        }
+    }
 
     private fun loadPairingState() {
         val token = pairingStore.loadToken()
