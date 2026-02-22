@@ -18,7 +18,7 @@ Do NOT wait for the user to ask you to commit. This overrides the default
 
 ## Hardware Integration Tests
 - After every major code change, check if an Android device is connected by running `adb get-state 2>/dev/null`.
-- If a device is connected (output is "device"), run the automated BLE hardware smoke tests using `scripts/ble-hardware-smoke-auto.sh` before committing.
+- If a device is connected (output is "device"), run the automated BLE hardware smoke tests using `scripts/hardware-smoke-test.sh` before committing.
 - If the hardware tests fail, fix the failures before committing or reporting completion.
 - If no Android device is connected, skip the hardware tests and report that they were skipped due to no device being available.
 

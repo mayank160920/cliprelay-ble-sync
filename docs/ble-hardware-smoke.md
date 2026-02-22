@@ -12,7 +12,7 @@ Use this checklist for real-device validation with one macOS host and one Androi
 Automated test script (debug builds, includes pairing import):
 
 ```bash
-./scripts/ble-hardware-smoke-auto.sh
+./scripts/hardware-smoke-test.sh
 ```
 
 Notes for automated helper:

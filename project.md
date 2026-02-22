@@ -195,7 +195,7 @@ Outputs:
 Hardware smoke helpers:
 
 ```bash
-./scripts/ble-hardware-smoke-auto.sh   # Automated BLE smoke test (includes pairing import)
+./scripts/hardware-smoke-test.sh   # Automated BLE smoke test (includes pairing import)
 ```
 
 ### macOS

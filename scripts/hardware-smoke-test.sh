@@ -14,7 +14,7 @@ PAIR_TOKEN=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/ble-hardware-smoke-auto.sh [--serial <adb-serial>] [--timeout <seconds>] [--keep-pairing]
+Usage: ./scripts/hardware-smoke-test.sh [--serial <adb-serial>] [--timeout <seconds>] [--keep-pairing]
 
 Runs a near-fully automated BLE smoke test on debug builds:
   1) Generates and imports a fresh pairing token on macOS and Android

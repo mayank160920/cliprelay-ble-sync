@@ -63,13 +63,13 @@ From repo root:
 For real-device BLE verification (macOS host + Android phone, debug builds):
 
 ```bash
-./scripts/ble-hardware-smoke-auto.sh
+./scripts/hardware-smoke-test.sh
 ```
 
 Optional device selection:
 
 ```bash
-./scripts/ble-hardware-smoke-auto.sh --serial <adb-serial>
+./scripts/hardware-smoke-test.sh --serial <adb-serial>
 ```
 
 By default the script removes the temporary smoke-test pairing from both devices at the end.

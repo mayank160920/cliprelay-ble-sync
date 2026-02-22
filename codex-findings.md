@@ -52,7 +52,7 @@ For every completed task in this file:
   - `android/app/src/test/java/com/clipshare/contract/ProtocolFixtureCompatibilityTest.kt`
   - `macos/ClipShareMac/Tests/GreenPasteTests/ProtocolFixtureCompatibilityTests.swift`
   - `scripts/test-all.sh`
-  - `scripts/ble-hardware-smoke-auto.sh`
+  - `scripts/hardware-smoke-test.sh`
 
 ## Structure / Idiomaticity To-Do
 
