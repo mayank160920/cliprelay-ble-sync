@@ -1,11 +1,13 @@
 package com.clipshare.ble
 
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattServer
 import android.bluetooth.BluetoothGattService
 import android.bluetooth.BluetoothManager
 import android.content.Context
+import android.os.Build
 import java.util.UUID
 
 class GattServerManager(
@@ -90,15 +92,13 @@ class GattServerManager(
             return false
         }
 
-        available.value = availablePayload
         connectedDevices.forEach { device ->
-            server.notifyCharacteristicChanged(device, available, false, availablePayload)
+            notifyCharacteristicChanged(server, device, available, availablePayload)
         }
 
         dataFrames.forEach { frame ->
-            data.value = frame
             connectedDevices.forEach { device ->
-                server.notifyCharacteristicChanged(device, data, false, frame)
+                notifyCharacteristicChanged(server, device, data, frame)
             }
             Thread.sleep(8)
         }
@@ -113,5 +113,23 @@ class GattServerManager(
         server = null
         availableCharacteristic = null
         dataCharacteristic = null
+    }
+
+    private fun notifyCharacteristicChanged(
+        server: BluetoothGattServer,
+        device: BluetoothDevice,
+        characteristic: BluetoothGattCharacteristic,
+        value: ByteArray
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            server.notifyCharacteristicChanged(device, characteristic, false, value)
+            return
+        }
+
+        @Suppress("DEPRECATION")
+        run {
+            characteristic.value = value
+            server.notifyCharacteristicChanged(device, characteristic, false)
+        }
     }
 }

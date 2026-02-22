@@ -201,7 +201,7 @@ Outputs:
 ### Android
 
 - Language: Kotlin
-- Min SDK: 31 / Target SDK: 35
+- Min SDK: 29 / Target SDK: 35
 - Build: Gradle (Kotlin DSL)
 - Dependencies: AndroidX Core + AppCompat + Material, ML Kit Barcode Scanning
 
