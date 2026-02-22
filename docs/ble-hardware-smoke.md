@@ -15,6 +15,19 @@ Optional helper:
 ./scripts/ble-hardware-smoke.sh
 ```
 
+Automated helper for debug builds (includes automated pairing import):
+
+```bash
+./scripts/ble-hardware-smoke-auto.sh
+```
+
+Notes for automated helper:
+
+- Requires debug APK build and USB debugging enabled.
+- Uses a debug-only Android receiver to import a fresh pairing token.
+- Uses a macOS CLI mode (`--smoke-import-pairing`) to import the same token locally.
+- Reads debug probe state from app private storage via `adb run-as`.
+
 ## Manual Test Cases
 
 ### 1) Mac -> Android clipboard sync

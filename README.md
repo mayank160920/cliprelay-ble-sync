@@ -68,6 +68,20 @@ For real-device BLE verification (macOS host + Android phone):
 
 Detailed manual steps and run log template: `docs/ble-hardware-smoke.md`.
 
+## Run automated device smoke
+
+For debug builds, you can run an automated smoke flow (including automated pairing):
+
+```bash
+./scripts/ble-hardware-smoke-auto.sh
+```
+
+Optional device selection:
+
+```bash
+./scripts/ble-hardware-smoke-auto.sh --serial <adb-serial>
+```
+
 ## Install and run
 
 ### 1) Install the mac app

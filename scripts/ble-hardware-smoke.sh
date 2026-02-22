@@ -95,3 +95,5 @@ echo
 echo "Log suggestions:"
 echo "- macOS app logs: Console.app (filter for GreenPaste)"
 echo "- Android logs: adb logcat | grep -E 'ClipShareService|GattServer|Advertiser'"
+echo
+echo "Automated helper (debug builds): ./scripts/ble-hardware-smoke-auto.sh"

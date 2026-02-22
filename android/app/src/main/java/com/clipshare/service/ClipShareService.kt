@@ -20,6 +20,7 @@ import com.clipshare.ble.ChunkTransfer
 import com.clipshare.ble.GattServerCallback
 import com.clipshare.ble.GattServerManager
 import com.clipshare.crypto.E2ECrypto
+import com.clipshare.debug.DebugSmokeProbe
 import com.clipshare.pairing.PairingStore
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -111,6 +112,7 @@ class ClipShareService : Service() {
                             inboundStateMachine.onDisconnected(deviceId)
                         }
                     }
+                    DebugSmokeProbe.onConnectionChanged(this, hasConnectedDevices)
                     val name = if (hasConnectedDevices) loadConnectedDeviceName() else null
                     sendConnectionBroadcast(hasConnectedDevices, name)
                 }
@@ -119,6 +121,7 @@ class ClipShareService : Service() {
 
         advertiser = Advertiser(ParcelUuid(GattServerManager.SERVICE_UUID))
         loadPairingState()
+        DebugSmokeProbe.reset(this)
 
         startForeground(1001, buildNotification())
         gattServer.start()
@@ -204,6 +207,7 @@ class ClipShareService : Service() {
 
         lastInboundHash = hash
         clipboardWriter.writeText(decodedText)
+        DebugSmokeProbe.onInboundClipboardApplied(this, decodedText)
     }
 
     private fun handleAvailableMetadata(deviceId: String, metadata: ByteArray) {
@@ -261,6 +265,8 @@ class ClipShareService : Service() {
         val published = gattServer.publishClipboardFrames(availablePayload, dataFrames)
         if (!published) {
             Log.d(TAG, "No subscribers for Android->Mac push")
+        } else {
+            DebugSmokeProbe.onOutboundClipboardPublished(this, text)
         }
     }
 

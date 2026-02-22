@@ -192,6 +192,13 @@ Outputs:
 - `dist/GreenPaste.app` — macOS app bundle
 - `dist/greenpaste-debug.apk` — Android debug APK
 
+Hardware smoke helpers:
+
+```bash
+./scripts/ble-hardware-smoke.sh        # Manual checklist/preflight
+./scripts/ble-hardware-smoke-auto.sh   # Debug-build automated flow (includes pairing import)
+```
+
 ### macOS
 
 - Language: Swift
