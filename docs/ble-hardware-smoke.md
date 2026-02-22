@@ -9,13 +9,7 @@ Use this checklist for real-device validation with one macOS host and one Androi
 - Devices paired through app QR flow and visible as trusted peers
 - Android foreground service running
 
-Optional helper:
-
-```bash
-./scripts/ble-hardware-smoke.sh
-```
-
-Automated helper for debug builds (includes automated pairing import):
+Automated test script (debug builds, includes pairing import):
 
 ```bash
 ./scripts/ble-hardware-smoke-auto.sh

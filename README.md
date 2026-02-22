@@ -58,19 +58,9 @@ From repo root:
 ./scripts/test-all.sh
 ```
 
-## Run hardware smoke checklist
+## Run device smoke tests
 
-For real-device BLE verification (macOS host + Android phone):
-
-```bash
-./scripts/ble-hardware-smoke.sh
-```
-
-Detailed manual steps and run log template: `docs/ble-hardware-smoke.md`.
-
-## Run automated device smoke
-
-For debug builds, you can run an automated smoke flow (including automated pairing):
+For real-device BLE verification (macOS host + Android phone, debug builds):
 
 ```bash
 ./scripts/ble-hardware-smoke-auto.sh
