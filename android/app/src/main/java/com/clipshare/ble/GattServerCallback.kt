@@ -9,23 +9,33 @@ import android.bluetooth.BluetoothGattServerCallback
 import java.util.UUID
 
 class GattServerCallback(
-    private val onAvailableReceived: (ByteArray) -> Unit,
-    private val onDataReceived: (ByteArray) -> Unit,
-    private val onDeviceConnectionChanged: (isConnected: Boolean) -> Unit
+    private val onAvailableReceived: (deviceId: String, payload: ByteArray) -> Unit,
+    private val onDataReceived: (deviceId: String, payload: ByteArray) -> Unit,
+    private val onDeviceConnectionChanged: (
+        deviceId: String,
+        isConnected: Boolean,
+        hasConnectedDevices: Boolean
+    ) -> Unit
 ) : BluetoothGattServerCallback() {
     companion object {
         private val CCC_DESCRIPTOR_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 
     var server: BluetoothGattServer? = null
-    private val connectedDevices = linkedSetOf<BluetoothDevice>()
+    private val connectedDevicesById = linkedMapOf<String, BluetoothDevice>()
+    private val connectionStateMachine = BleConnectionStateMachine()
 
-    fun connectedDevicesSnapshot(): List<BluetoothDevice> = synchronized(connectedDevices) {
-        connectedDevices.toList()
+    private fun deviceIdFor(device: BluetoothDevice): String {
+        return device.address ?: device.toString()
     }
 
-    fun clearConnectedDevices() = synchronized(connectedDevices) {
-        connectedDevices.clear()
+    fun connectedDevicesSnapshot(): List<BluetoothDevice> = synchronized(connectedDevicesById) {
+        connectedDevicesById.values.toList()
+    }
+
+    fun clearConnectedDevices() = synchronized(connectedDevicesById) {
+        connectedDevicesById.clear()
+        connectionStateMachine.clear()
     }
 
     override fun onConnectionStateChange(device: BluetoothDevice?, status: Int, newState: Int) {
@@ -33,13 +43,17 @@ class GattServerCallback(
             return
         }
 
-        synchronized(connectedDevices) {
-            if (newState == BluetoothGatt.STATE_CONNECTED) {
-                connectedDevices.add(device)
+        val deviceId = deviceIdFor(device)
+        val isConnected = newState == BluetoothGatt.STATE_CONNECTED
+
+        synchronized(connectedDevicesById) {
+            if (isConnected) {
+                connectedDevicesById[deviceId] = device
             } else {
-                connectedDevices.remove(device)
+                connectedDevicesById.remove(deviceId)
             }
-            onDeviceConnectionChanged(connectedDevices.isNotEmpty())
+            val hasConnectedDevices = connectionStateMachine.onConnectionChanged(deviceId, isConnected)
+            onDeviceConnectionChanged(deviceId, isConnected, hasConnectedDevices)
         }
     }
 
@@ -52,11 +66,12 @@ class GattServerCallback(
         offset: Int,
         value: ByteArray
     ) {
+        val deviceId = deviceIdFor(device)
         if (characteristic.uuid == GattServerManager.AVAILABLE_UUID) {
-            onAvailableReceived(value)
+            onAvailableReceived(deviceId, value)
         }
         if (characteristic.uuid == GattServerManager.DATA_UUID) {
-            onDataReceived(value)
+            onDataReceived(deviceId, value)
         }
         if (responseNeeded) {
             server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)

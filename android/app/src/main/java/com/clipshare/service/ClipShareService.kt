@@ -15,7 +15,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.clipshare.R
 import com.clipshare.ble.Advertiser
-import com.clipshare.ble.ChunkReassembler
+import com.clipshare.ble.BleInboundStateMachine
 import com.clipshare.ble.ChunkTransfer
 import com.clipshare.ble.GattServerCallback
 import com.clipshare.ble.GattServerManager
@@ -50,7 +50,7 @@ class ClipShareService : Service() {
     private lateinit var pairingStore: PairingStore
 
     private val transferExecutor = Executors.newSingleThreadExecutor()
-    private val incomingDataReassembler = ChunkReassembler()
+    private val inboundStateMachine = BleInboundStateMachine()
 
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -62,12 +62,18 @@ class ClipShareService : Service() {
                     gattServer.start()
                     advertiser.stop()
                     advertiser.start()
+                    transferExecutor.execute {
+                        inboundStateMachine.resetAll()
+                    }
                     sendConnectionBroadcast(false)
                 }
                 BluetoothAdapter.STATE_OFF -> {
                     Log.d(TAG, "Bluetooth disabled — stopping GATT server and advertiser")
                     advertiser.stop()
                     gattServer.stop()
+                    transferExecutor.execute {
+                        inboundStateMachine.resetAll()
+                    }
                     sendConnectionBroadcast(false)
                 }
             }
@@ -80,9 +86,6 @@ class ClipShareService : Service() {
     @Volatile
     private var lastInboundHash: String? = null
 
-    @Volatile
-    private var pendingInboundHashFromMetadata: String? = null
-
     override fun onCreate() {
         super.onCreate()
 
@@ -92,25 +95,24 @@ class ClipShareService : Service() {
         gattServer = GattServerManager(
             this,
             GattServerCallback(
-                onAvailableReceived = { bytes ->
+                onAvailableReceived = { deviceId, bytes ->
                     transferExecutor.execute {
-                        handleAvailableMetadata(bytes)
+                        handleAvailableMetadata(deviceId, bytes)
                     }
                 },
-                onDataReceived = { bytes ->
+                onDataReceived = { deviceId, bytes ->
                     transferExecutor.execute {
-                        handleIncomingDataFrame(bytes)
+                        handleIncomingDataFrame(deviceId, bytes)
                     }
                 },
-                onDeviceConnectionChanged = { isConnected ->
+                onDeviceConnectionChanged = { deviceId, isConnected, hasConnectedDevices ->
                     if (!isConnected) {
                         transferExecutor.execute {
-                            incomingDataReassembler.reset()
-                            pendingInboundHashFromMetadata = null
+                            inboundStateMachine.onDisconnected(deviceId)
                         }
                     }
-                    val name = if (isConnected) loadConnectedDeviceName() else null
-                    sendConnectionBroadcast(isConnected, name)
+                    val name = if (hasConnectedDevices) loadConnectedDeviceName() else null
+                    sendConnectionBroadcast(hasConnectedDevices, name)
                 }
             )
         )
@@ -128,6 +130,9 @@ class ClipShareService : Service() {
         unregisterReceiver(bluetoothStateReceiver)
         advertiser.stop()
         gattServer.stop()
+        transferExecutor.execute {
+            inboundStateMachine.resetAll()
+        }
         transferExecutor.shutdown()
         super.onDestroy()
     }
@@ -145,6 +150,9 @@ class ClipShareService : Service() {
             ACTION_RELOAD_PAIRING -> {
                 loadPairingState()
                 advertiser.restart()
+                transferExecutor.execute {
+                    inboundStateMachine.resetAll()
+                }
             }
             ACTION_QUERY_CONNECTION -> {
                 val connected = gattServer.hasConnectedCentral()
@@ -170,22 +178,9 @@ class ClipShareService : Service() {
         }
     }
 
-    private fun handleIncomingDataFrame(frame: ByteArray) {
-        val assembled = incomingDataReassembler.consumeFrame(frame) ?: return
-
+    private fun handleIncomingDataFrame(deviceId: String, frame: ByteArray) {
+        val assembled = inboundStateMachine.onDataFrame(deviceId, frame) ?: return
         val assembledBytes = assembled.bytes
-        if (assembledBytes.isEmpty() || assembledBytes.size > MAX_CLIPBOARD_BYTES + 1024) {
-            return
-        }
-
-        // Verify hash against metadata
-        val assembledHash = sha256Hex(assembledBytes)
-        val metadataHash = pendingInboundHashFromMetadata
-        if (!metadataHash.isNullOrBlank() && metadataHash != assembledHash) {
-            pendingInboundHashFromMetadata = null
-            return
-        }
-        pendingInboundHashFromMetadata = null
 
         // Decrypt
         val key = encryptionKey
@@ -211,15 +206,8 @@ class ClipShareService : Service() {
         clipboardWriter.writeText(decodedText)
     }
 
-    private fun handleAvailableMetadata(metadata: ByteArray) {
-        val json = runCatching {
-            JSONObject(metadata.toString(Charsets.UTF_8))
-        }.getOrNull() ?: return
-
-        val hash = json.optString("hash")
-        if (hash.isNotBlank()) {
-            pendingInboundHashFromMetadata = hash
-        }
+    private fun handleAvailableMetadata(deviceId: String, metadata: ByteArray) {
+        inboundStateMachine.onAvailableMetadata(deviceId, metadata)
     }
 
     private fun pushPlainTextToMac(text: String) {

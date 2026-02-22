@@ -58,6 +58,16 @@ From repo root:
 ./scripts/test-all.sh
 ```
 
+## Run hardware smoke checklist
+
+For real-device BLE verification (macOS host + Android phone):
+
+```bash
+./scripts/ble-hardware-smoke.sh
+```
+
+Detailed manual steps and run log template: `docs/ble-hardware-smoke.md`.
+
 ## Install and run
 
 ### 1) Install the mac app

@@ -40,10 +40,10 @@ Build a reliable automated test baseline in this order:
 - [x] Run full rebuild: `./scripts/build-all.sh`
 
 ### Phase 5 - Optional later work
-- [ ] Extract BLE state-machine logic from platform APIs
-- [ ] Add reconnect/slot cleanup tests (disconnect/reconnect cycles)
-- [ ] Add partial-transfer discard tests at state-machine layer
-- [ ] Add hardware smoke script/checklist for real Android device + macOS host
+- [x] Extract BLE state-machine logic from platform APIs
+- [x] Add reconnect/slot cleanup tests (disconnect/reconnect cycles)
+- [x] Add partial-transfer discard tests at state-machine layer
+- [x] Add hardware smoke script/checklist for real Android device + macOS host
 - [ ] Run manual BLE smoke pass (Mac->Android copy, Android Share->Mac, reconnect after Bluetooth toggle)
 
 ## Notes
