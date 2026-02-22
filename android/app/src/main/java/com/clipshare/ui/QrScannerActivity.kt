@@ -3,8 +3,11 @@ package com.clipshare.ui
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.View
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.clipshare.R
 import com.clipshare.pairing.PairingStore
 import com.clipshare.pairing.PairingUriParser
 import com.clipshare.service.ClipShareService
@@ -20,10 +23,17 @@ class QrScannerActivity : AppCompatActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var moduleRetryCount = 0
-    private var moduleToastShown = false
+
+    private lateinit var loadingTitle: TextView
+    private lateinit var loadingSubtitle: TextView
+    private lateinit var loadingRetry: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_qr_scanner_loading)
+        loadingTitle = findViewById(R.id.qrLoadingTitle)
+        loadingSubtitle = findViewById(R.id.qrLoadingSubtitle)
+        loadingRetry = findViewById(R.id.qrLoadingRetry)
         launchScanner()
     }
 
@@ -64,19 +74,13 @@ class QrScannerActivity : AppCompatActivity() {
     }
 
     private fun retryWhenBarcodeModuleReady() {
-        if (!moduleToastShown) {
-            moduleToastShown = true
-            Toast.makeText(
-                this,
-                "Preparing barcode scanner. Please wait a moment...",
-                Toast.LENGTH_LONG
-            ).show()
-        }
+        loadingTitle.text = getString(R.string.qr_loading_title)
+        loadingSubtitle.text = getString(R.string.qr_loading_subtitle)
 
         if (moduleRetryCount >= MAX_MODULE_RETRIES) {
             Toast.makeText(
                 this,
-                "Barcode scanner is still downloading. Please try again shortly.",
+                getString(R.string.qr_module_still_downloading),
                 Toast.LENGTH_LONG
             ).show()
             finish()
@@ -84,6 +88,8 @@ class QrScannerActivity : AppCompatActivity() {
         }
 
         moduleRetryCount += 1
+        loadingRetry.text = getString(R.string.qr_loading_retry, moduleRetryCount, MAX_MODULE_RETRIES)
+        loadingRetry.visibility = View.VISIBLE
         handler.postDelayed({ launchScanner() }, MODULE_RETRY_DELAY_MS)
     }
 

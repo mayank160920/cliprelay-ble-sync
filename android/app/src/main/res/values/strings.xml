@@ -15,4 +15,8 @@
     <string name="pair_with_mac">Pair with Mac</string>
     <string name="unpair">Unpair</string>
     <string name="share_help">Tip: Use Android’s Share action in other apps to send selected text to your paired Mac.</string>
+    <string name="qr_loading_title">Preparing scanner...</string>
+    <string name="qr_loading_subtitle">Downloading required barcode module from Google Play services. Keep this screen open.</string>
+    <string name="qr_loading_retry">Retry %1$d of %2$d</string>
+    <string name="qr_module_still_downloading">Barcode scanner is still downloading. Please try again shortly.</string>
 </resources>
