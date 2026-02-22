@@ -51,13 +51,21 @@ class QrScannerActivity : AppCompatActivity() {
             return
         }
 
-        PairingStore(this).saveToken(info.token)
+        val stored = runCatching {
+            PairingStore(this).saveToken(info.token)
 
-        if (info.deviceName != null) {
-            getSharedPreferences(ClipShareService.PREFS_NAME, MODE_PRIVATE)
-                .edit()
-                .putString(ClipShareService.KEY_CONNECTED_DEVICE, info.deviceName)
-                .apply()
+            if (info.deviceName != null) {
+                getSharedPreferences(ClipShareService.PREFS_NAME, MODE_PRIVATE)
+                    .edit()
+                    .putString(ClipShareService.KEY_CONNECTED_DEVICE, info.deviceName)
+                    .apply()
+            }
+        }.isSuccess
+
+        if (!stored) {
+            Toast.makeText(this, "Pairing failed. Please try again.", Toast.LENGTH_LONG).show()
+            finish()
+            return
         }
 
         Toast.makeText(this, "Paired successfully!", Toast.LENGTH_SHORT).show()

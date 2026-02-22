@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import com.clipshare.R
 import com.clipshare.service.ClipShareService
 
@@ -18,7 +19,13 @@ class ShareReceiverActivity : AppCompatActivity() {
                     action = ClipShareService.ACTION_PUSH_TEXT
                     putExtra(ClipShareService.EXTRA_TEXT, text)
                 }
-                startForegroundService(serviceIntent)
+                runCatching {
+                    ContextCompat.startForegroundService(this, serviceIntent)
+                }.onFailure {
+                    Toast.makeText(this, "Could not start GreenPaste service", Toast.LENGTH_SHORT).show()
+                    finish()
+                    return
+                }
 
                 val deviceName = getSharedPreferences(ClipShareService.PREFS_NAME, MODE_PRIVATE)
                     .getString(ClipShareService.KEY_CONNECTED_DEVICE, null)

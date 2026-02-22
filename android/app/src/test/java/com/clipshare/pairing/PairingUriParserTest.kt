@@ -37,4 +37,13 @@ class PairingUriParserTest {
         requireNotNull(info)
         assertNull(info.deviceName)
     }
+
+    @Test
+    fun malformedQueryEncoding_returnsNullInsteadOfCrashing() {
+        val info = PairingUriParser.parse(
+            "greenpaste://pair?t=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff&n=%"
+        )
+
+        assertNull(info)
+    }
 }

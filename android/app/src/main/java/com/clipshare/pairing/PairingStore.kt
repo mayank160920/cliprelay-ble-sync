@@ -11,7 +11,10 @@ class PairingStore(context: Context) {
         private const val KEY_TOKEN = "pairing_token"
     }
 
-    private val prefs: SharedPreferences = try {
+    private val fallbackPrefs: SharedPreferences =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    private val encryptedPrefs: SharedPreferences? = try {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
@@ -23,18 +26,40 @@ class PairingStore(context: Context) {
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
     } catch (_: Exception) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        null
     }
 
     fun saveToken(token: String) {
-        prefs.edit().putString(KEY_TOKEN, token).apply()
+        if (writeToken(encryptedPrefs, token)) return
+        writeToken(fallbackPrefs, token)
     }
 
     fun loadToken(): String? {
-        return prefs.getString(KEY_TOKEN, null)
+        return readToken(encryptedPrefs) ?: readToken(fallbackPrefs)
     }
 
     fun clear() {
-        prefs.edit().remove(KEY_TOKEN).apply()
+        clearToken(encryptedPrefs)
+        clearToken(fallbackPrefs)
+    }
+
+    private fun writeToken(prefs: SharedPreferences?, token: String): Boolean {
+        if (prefs == null) return false
+        return runCatching {
+            prefs.edit().putString(KEY_TOKEN, token).apply()
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun readToken(prefs: SharedPreferences?): String? {
+        if (prefs == null) return null
+        return runCatching { prefs.getString(KEY_TOKEN, null) }.getOrNull()
+    }
+
+    private fun clearToken(prefs: SharedPreferences?) {
+        if (prefs == null) return
+        runCatching {
+            prefs.edit().remove(KEY_TOKEN).apply()
+        }
     }
 }

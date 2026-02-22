@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import android.view.View
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
@@ -48,7 +49,7 @@ class MainActivity : AppCompatActivity() {
             // Tell service to reload pairing and restart advertising
             val reloadIntent = Intent(this, ClipShareService::class.java)
             reloadIntent.action = ClipShareService.ACTION_RELOAD_PAIRING
-            startForegroundService(reloadIntent)
+            startServiceSafely(reloadIntent)
         }
     }
 
@@ -74,7 +75,7 @@ class MainActivity : AppCompatActivity() {
             updateUI(connected = false)
             val reloadIntent = Intent(this, ClipShareService::class.java)
             reloadIntent.action = ClipShareService.ACTION_RELOAD_PAIRING
-            startForegroundService(reloadIntent)
+            startServiceSafely(reloadIntent)
         }
     }
 
@@ -90,7 +91,7 @@ class MainActivity : AppCompatActivity() {
         // Ask service for current connection state
         val queryIntent = Intent(this, ClipShareService::class.java)
         queryIntent.action = ClipShareService.ACTION_QUERY_CONNECTION
-        startForegroundService(queryIntent)
+        startServiceSafely(queryIntent)
     }
 
     override fun onPause() {
@@ -113,7 +114,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun ensureServiceRunning() {
-        startForegroundService(Intent(this, ClipShareService::class.java))
+        startServiceSafely(Intent(this, ClipShareService::class.java))
+    }
+
+    private fun startServiceSafely(intent: Intent) {
+        val started = runCatching {
+            ContextCompat.startForegroundService(this, intent)
+        }.isSuccess
+        if (!started) {
+            Toast.makeText(this, "Could not start GreenPaste service", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun requestRuntimePermissions() {
