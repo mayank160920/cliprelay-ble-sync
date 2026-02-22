@@ -25,10 +25,10 @@ class E2ECryptoTest {
         val tag = E2ECrypto.deviceTag(token)
 
         assertEquals(
-            "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+            "ebe1f3ab78afe6ea4967489d3e9364931ff7a6b7981c385f73a8aea28ab4919e",
             key.encoded.toHex()
         )
-        assertEquals("630dcd2966c43366", tag.toHex())
+        assertEquals("a9de2acdda2646ce", tag.toHex())
     }
 
     @Test(expected = Exception::class)

@@ -5,7 +5,12 @@ import XCTest
 final class ProtocolFixtureCompatibilityTests: XCTestCase {
     func testFixtureDecryptsWithDerivedKey() throws {
         let fixture = try ProtocolFixtureLoader.loadV1()
-        let key = SymmetricKey(data: Data(SHA256.hash(data: hexToData(fixture.tokenHex))))
+        let ikm = SymmetricKey(data: hexToData(fixture.tokenHex))
+        let key = HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: ikm,
+            info: Data("greenpaste-enc-v1".utf8),
+            outputByteCount: 32
+        )
 
         let decrypted = try E2ECrypto.open(fixture.encryptedBlob, key: key)
 
