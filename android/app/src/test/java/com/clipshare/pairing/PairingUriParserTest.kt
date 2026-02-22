@@ -39,23 +39,26 @@ class PairingUriParserTest {
     }
 
     @Test
-    fun malformedQueryEncoding_returnsNullInsteadOfCrashing() {
+    fun malformedQueryEncoding_returnsNullWithoutCrashing() {
         val info = PairingUriParser.parse(
             "greenpaste://pair?t=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff&n=%"
         )
 
-        requireNotNull(info)
-        assertEquals("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff", info.token)
+        assertNull(info)
     }
 
     @Test
-    fun parsesPairUrisWithPathFormAndLegacyParameterNames() {
-        val info = PairingUriParser.parse(
-            "greenpaste:/pair?token=ffeeddccbbaa00998877665544332211ffeeddccbbaa00998877665544332211&name=Mac Book"
+    fun rejectsNonCanonicalUriFormsAndLegacyParamNames() {
+        assertNull(
+            PairingUriParser.parse(
+                "greenpaste:/pair?token=ffeeddccbbaa00998877665544332211ffeeddccbbaa00998877665544332211&name=Mac Book"
+            )
         )
 
-        requireNotNull(info)
-        assertEquals("ffeeddccbbaa00998877665544332211ffeeddccbbaa00998877665544332211", info.token)
-        assertEquals("Mac Book", info.deviceName)
+        assertNull(
+            PairingUriParser.parse(
+                "greenpaste://pair?token=ffeeddccbbaa00998877665544332211ffeeddccbbaa00998877665544332211&name=Mac Book"
+            )
+        )
     }
 }
