@@ -208,6 +208,7 @@ Outputs:
 ## Known Constraints & Tradeoffs
 
 - Android → Mac requires explicit Share action (platform privacy constraint).
+- Android system clipboard UI differs by OS version; newer Android versions may show clipboard overlays while Android 10 may show none. GreenPaste does not post per-transfer clipboard notifications.
 - BLE range is local (~10 m typical).
 - Text only (100 KiB max).
 - macOS clipboard uses polling (`changeCount`) by design.
