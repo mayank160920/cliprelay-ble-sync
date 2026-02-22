@@ -58,7 +58,7 @@ object PairingUriParser {
 
     private fun decodeQueryComponent(value: String): String {
         return runCatching {
-            URLDecoder.decode(value, Charsets.UTF_8)
+            URLDecoder.decode(value, "UTF-8")
         }.getOrElse {
             value.replace('+', ' ')
         }
