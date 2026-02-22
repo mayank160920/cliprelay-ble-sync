@@ -9,6 +9,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var bleManager: BLECentralManager?
     private var clipboardMonitor: ClipboardMonitor?
+    private var lastConnectedPeerIDs: Set<UUID> = []
+    private var pairingBaselineConnectedPeerIDs: Set<UUID> = []
+    private var awaitingNewPairingConnection = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         notificationManager.requestAuthorization()
@@ -31,9 +34,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         bleManager?.onConnectedPeersChanged = { [weak self] peers in
             DispatchQueue.main.async {
-                self?.statusBarController.setConnectedPeers(peers)
-                if !peers.isEmpty {
-                    self?.pairingWindowController.close()
+                guard let self else { return }
+                let connectedPeerIDs = Set(peers.map(\.id))
+                self.lastConnectedPeerIDs = connectedPeerIDs
+                self.statusBarController.setConnectedPeers(peers)
+
+                guard self.awaitingNewPairingConnection else { return }
+                guard self.pairingWindowController.isShowing else {
+                    self.awaitingNewPairingConnection = false
+                    return
+                }
+
+                let newlyConnectedPeers = connectedPeerIDs.subtracting(self.pairingBaselineConnectedPeerIDs)
+                if !newlyConnectedPeers.isEmpty {
+                    self.pairingWindowController.close()
+                    self.awaitingNewPairingConnection = false
                 }
             }
         }
@@ -60,6 +75,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             datePaired: Date()
         )
         pairingManager.addDevice(device)
+
+        pairingBaselineConnectedPeerIDs = lastConnectedPeerIDs
+        awaitingNewPairingConnection = true
 
         guard let uri = pairingManager.pairingURI(token: token) else { return }
         pairingWindowController.showPairingQR(uri: uri)

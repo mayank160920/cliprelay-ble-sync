@@ -5,27 +5,19 @@ final class PairingWindowController {
     private var window: NSWindow?
     private var windowDelegate: WindowCloseHandler?
 
+    var isShowing: Bool {
+        window?.isVisible == true
+    }
+
     func showPairingQR(uri: URL) {
+        let content = makeContentView(uri: uri)
+
         if let existing = window {
+            existing.contentView = content
             existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
-
-        let qrImage = generateQRCode(from: uri.absoluteString)
-
-        let imageView = NSImageView(frame: NSRect(x: 0, y: 0, width: 240, height: 240))
-        imageView.image = qrImage
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-
-        let label = NSTextField(labelWithString: "Scan this QR code with the\nGreenPaste Android app")
-        label.alignment = .center
-        label.font = NSFont.systemFont(ofSize: 13)
-        label.maximumNumberOfLines = 2
-
-        let stack = NSStackView(views: [imageView, label])
-        stack.orientation = .vertical
-        stack.spacing = 12
-        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
 
         let contentRect = NSRect(x: 0, y: 0, width: 280, height: 320)
         let w = NSWindow(
@@ -35,7 +27,7 @@ final class PairingWindowController {
             defer: false
         )
         w.title = "Pair New Device"
-        w.contentView = stack
+        w.contentView = content
         w.center()
         w.isReleasedWhenClosed = false
         w.level = .floating
@@ -68,6 +60,25 @@ final class PairingWindowController {
         let image = NSImage(size: rep.size)
         image.addRepresentation(rep)
         return image
+    }
+
+    private func makeContentView(uri: URL) -> NSView {
+        let qrImage = generateQRCode(from: uri.absoluteString)
+
+        let imageView = NSImageView(frame: NSRect(x: 0, y: 0, width: 240, height: 240))
+        imageView.image = qrImage
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+
+        let label = NSTextField(labelWithString: "Scan this QR code with the\nGreenPaste Android app")
+        label.alignment = .center
+        label.font = NSFont.systemFont(ofSize: 13)
+        label.maximumNumberOfLines = 2
+
+        let stack = NSStackView(views: [imageView, label])
+        stack.orientation = .vertical
+        stack.spacing = 12
+        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        return stack
     }
 }
 
