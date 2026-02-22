@@ -44,6 +44,18 @@ class PairingUriParserTest {
             "greenpaste://pair?t=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff&n=%"
         )
 
-        assertNull(info)
+        requireNotNull(info)
+        assertEquals("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff", info.token)
+    }
+
+    @Test
+    fun parsesPairUrisWithPathFormAndLegacyParameterNames() {
+        val info = PairingUriParser.parse(
+            "greenpaste:/pair?token=ffeeddccbbaa00998877665544332211ffeeddccbbaa00998877665544332211&name=Mac Book"
+        )
+
+        requireNotNull(info)
+        assertEquals("ffeeddccbbaa00998877665544332211ffeeddccbbaa00998877665544332211", info.token)
+        assertEquals("Mac Book", info.deviceName)
     }
 }
