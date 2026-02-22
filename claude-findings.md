@@ -21,7 +21,7 @@
 - [ ] **7. `GattServerCallback.server` field has no visibility guarantee across threads**
   `android/.../ble/GattServerCallback.kt:20`
   `server` is assigned on the main thread but read from BLE Binder threads. Without `@Volatile`, the BLE callback thread may see a stale null and silently drop `sendResponse()` calls.
-- [ ] **8. `Thread.sleep(8)` blocks the single-threaded transfer executor for ~1.6s during sends**
+- [x] **8. ~~`Thread.sleep(8)` blocks the single-threaded transfer executor for ~1.6s during sends~~ — FIXED**
   `android/.../ble/GattServerManager.kt:103`
   For max 100 KiB payloads, 202 chunks x 8ms = ~1.6s of executor blocking. All incoming data processing is delayed during this window.
 - [ ] **9. `stop()` on macOS can be undone by late CoreBluetooth callbacks**

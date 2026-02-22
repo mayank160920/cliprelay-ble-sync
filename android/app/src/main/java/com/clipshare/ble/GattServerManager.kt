@@ -8,13 +8,16 @@ import android.bluetooth.BluetoothGattService
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 class GattServerManager(
     private val context: Context,
     private val callback: GattServerCallback
 ) {
     companion object {
+        private const val TAG = "GattServerManager"
         val SERVICE_UUID: UUID = UUID.fromString("c10b0001-1234-5678-9abc-def012345678")
         val AVAILABLE_UUID: UUID = UUID.fromString("c10b0002-1234-5678-9abc-def012345678")
         val DATA_UUID: UUID = UUID.fromString("c10b0003-1234-5678-9abc-def012345678")
@@ -92,6 +95,9 @@ class GattServerManager(
             return false
         }
 
+        // Drain any stale permits before starting
+        callback.notificationSent.drainPermits()
+
         connectedDevices.forEach { device ->
             notifyCharacteristicChanged(server, device, available, availablePayload)
         }
@@ -99,8 +105,12 @@ class GattServerManager(
         dataFrames.forEach { frame ->
             connectedDevices.forEach { device ->
                 notifyCharacteristicChanged(server, device, data, frame)
+                // Wait for onNotificationSent before sending the next chunk;
+                // timeout prevents hanging if the callback never fires.
+                if (!callback.notificationSent.tryAcquire(500, TimeUnit.MILLISECONDS)) {
+                    Log.w(TAG, "onNotificationSent timeout — BLE congestion or disconnected peer")
+                }
             }
-            Thread.sleep(8)
         }
 
         return true

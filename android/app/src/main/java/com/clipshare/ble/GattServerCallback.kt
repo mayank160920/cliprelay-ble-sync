@@ -7,6 +7,7 @@ import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattServer
 import android.bluetooth.BluetoothGattServerCallback
 import java.util.UUID
+import java.util.concurrent.Semaphore
 
 class GattServerCallback(
     private val onAvailableReceived: (deviceId: String, payload: ByteArray) -> Unit,
@@ -22,6 +23,7 @@ class GattServerCallback(
     }
 
     var server: BluetoothGattServer? = null
+    val notificationSent = Semaphore(0)
     private val connectedDevicesById = linkedMapOf<String, BluetoothDevice>()
     private val connectionStateMachine = BleConnectionStateMachine()
 
@@ -108,6 +110,10 @@ class GattServerCallback(
 
         val sliced = if (offset == 0) value else value.copyOfRange(offset, value.size)
         server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, sliced)
+    }
+
+    override fun onNotificationSent(device: BluetoothDevice?, status: Int) {
+        notificationSent.release()
     }
 
     override fun onDescriptorWriteRequest(
