@@ -111,6 +111,8 @@ build_mac() {
   <string>0.1.0</string>
   <key>CFBundleVersion</key>
   <string>1</string>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>GreenPaste uses Bluetooth Low Energy to discover and sync clipboard text with your paired Android devices.</string>
   <key>LSUIElement</key>
   <true/>
 </dict>

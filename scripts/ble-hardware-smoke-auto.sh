@@ -138,6 +138,29 @@ wait_for_probe_value() {
   done
 }
 
+wait_for_probe_counter_gt() {
+  local baseline="$1"
+  local timeout="$2"
+  local start_ts
+  start_ts="$(date +%s)"
+
+  while true; do
+    local value
+    value="$(probe_get "event_counter" "0")"
+    if [[ "$value" =~ ^[0-9]+$ ]] && (( value > baseline )); then
+      return 0
+    fi
+
+    local now_ts
+    now_ts="$(date +%s)"
+    if (( now_ts - start_ts >= timeout )); then
+      echo "Timed out waiting for probe event counter to increase (baseline=$baseline, last=$value)" >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
 wait_for_mac_clipboard() {
   local expected="$1"
   local timeout="$2"
@@ -158,6 +181,81 @@ wait_for_mac_clipboard() {
       return 1
     fi
     sleep 1
+  done
+}
+
+send_android_share_text() {
+  local text="$1"
+  ${ADB[@]} shell am start \
+    -n com.clipshare/.ui.ShareReceiverActivity \
+    -a android.intent.action.SEND \
+    -t text/plain \
+    --es android.intent.extra.TEXT "$text" >/dev/null
+}
+
+wait_for_mac_clipboard_with_retries() {
+  local text="$1"
+  local timeout="$2"
+  local send_interval=3
+  local start_ts
+  start_ts="$(date +%s)"
+  local last_send_ts=0
+
+  while true; do
+    local now_ts
+    now_ts="$(date +%s)"
+
+    if (( now_ts - last_send_ts >= send_interval )); then
+      send_android_share_text "$text"
+      last_send_ts="$now_ts"
+    fi
+
+    if [[ "$(pbpaste)" == "$text" ]]; then
+      return 0
+    fi
+
+    if (( now_ts - start_ts >= timeout )); then
+      echo "Timed out waiting for macOS clipboard payload" >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+wait_for_probe_after_mac_copy_with_retries() {
+  local prefix="$1"
+  local timeout="$2"
+  local start_ts
+  start_ts="$(date +%s)"
+  local attempt=0
+
+  while true; do
+    attempt=$((attempt + 1))
+    local payload="${prefix}-a${attempt}"
+    printf '%s' "$payload" | pbcopy
+
+    local inner_start
+    inner_start="$(date +%s)"
+    while true; do
+      if [[ "$(probe_get "last_inbound_text" "")" == "$payload" ]]; then
+        printf '%s' "$payload"
+        return 0
+      fi
+
+      local now_ts
+      now_ts="$(date +%s)"
+      if (( now_ts - inner_start >= 5 )); then
+        break
+      fi
+      sleep 1
+    done
+
+    local now_ts
+    now_ts="$(date +%s)"
+    if (( now_ts - start_ts >= timeout )); then
+      echo "Timed out waiting for Android probe inbound clipboard" >&2
+      return 1
+    fi
   done
 }
 
@@ -187,14 +285,32 @@ start_mac_app() {
   if pgrep -f "GreenPaste.app/Contents/MacOS/GreenPaste" >/dev/null 2>&1; then
     return
   fi
-  "$MAC_BIN" >/tmp/greenpaste-smoke.log 2>&1 &
-  sleep 2
+
+  open "$MAC_APP_PATH"
+
+  local attempts=0
+  until pgrep -f "GreenPaste.app/Contents/MacOS/GreenPaste" >/dev/null 2>&1; do
+    attempts=$((attempts + 1))
+    if (( attempts >= 20 )); then
+      echo "GreenPaste app did not stay running after launch." >&2
+      echo "Check macOS logs: /usr/bin/log show --last 5m --style compact --predicate 'process == \"GreenPaste\"'" >&2
+      exit 1
+    fi
+    sleep 1
+  done
 }
 
 toggle_bluetooth() {
   if ${ADB[@]} shell cmd bluetooth_manager disable >/dev/null 2>&1; then
-    sleep 3
-    ${ADB[@]} shell cmd bluetooth_manager enable >/dev/null 2>&1
+    if ! ${ADB[@]} shell cmd bluetooth_manager wait-for-state:STATE_OFF >/dev/null 2>&1; then
+      return 1
+    fi
+    if ! ${ADB[@]} shell cmd bluetooth_manager enable >/dev/null 2>&1; then
+      return 1
+    fi
+    if ! ${ADB[@]} shell cmd bluetooth_manager wait-for-state:STATE_ON >/dev/null 2>&1; then
+      return 1
+    fi
     return 0
   fi
 
@@ -276,41 +392,28 @@ wait_for_probe_value "connected" "true" "$TIMEOUT_SEC"
 android_to_mac_text="smoke-a2m-$(date +%s)-$RANDOM"
 echo "- Running Android -> Mac transfer"
 printf '%s' "pre-smoke-marker" | pbcopy
-${ADB[@]} shell am start \
-  -n com.clipshare/.ui.ShareReceiverActivity \
-  -a android.intent.action.SEND \
-  -t text/plain \
-  --es android.intent.extra.TEXT "$android_to_mac_text" >/dev/null
-wait_for_mac_clipboard "$android_to_mac_text" "$TIMEOUT_SEC"
+wait_for_mac_clipboard_with_retries "$android_to_mac_text" "$TIMEOUT_SEC"
 
-mac_to_android_text="smoke-m2a-$(date +%s)-$RANDOM"
 echo "- Running Mac -> Android transfer"
-printf '%s' "$mac_to_android_text" | pbcopy
-wait_for_probe_value "last_inbound_text" "$mac_to_android_text" "$TIMEOUT_SEC"
+mac_to_android_text="$(wait_for_probe_after_mac_copy_with_retries "smoke-m2a-$(date +%s)-$RANDOM" "$TIMEOUT_SEC")"
 
 echo "- Running reconnect cycle"
+counter_before_reconnect="$(probe_get "event_counter" "0")"
 if ! toggle_bluetooth; then
   echo "Could not toggle Bluetooth via adb shell commands" >&2
   echo "Try manual toggle and rerun this script." >&2
   exit 1
 fi
 
-wait_for_probe_value "connected" "false" 30
+wait_for_probe_counter_gt "$counter_before_reconnect" 30
 wait_for_probe_value "connected" "true" "$TIMEOUT_SEC"
 
 android_to_mac_text_re="smoke-a2m-re-$(date +%s)-$RANDOM"
 echo "- Re-verify Android -> Mac after reconnect"
-${ADB[@]} shell am start \
-  -n com.clipshare/.ui.ShareReceiverActivity \
-  -a android.intent.action.SEND \
-  -t text/plain \
-  --es android.intent.extra.TEXT "$android_to_mac_text_re" >/dev/null
-wait_for_mac_clipboard "$android_to_mac_text_re" "$TIMEOUT_SEC"
+wait_for_mac_clipboard_with_retries "$android_to_mac_text_re" "$TIMEOUT_SEC"
 
-mac_to_android_text_re="smoke-m2a-re-$(date +%s)-$RANDOM"
 echo "- Re-verify Mac -> Android after reconnect"
-printf '%s' "$mac_to_android_text_re" | pbcopy
-wait_for_probe_value "last_inbound_text" "$mac_to_android_text_re" "$TIMEOUT_SEC"
+mac_to_android_text_re="$(wait_for_probe_after_mac_copy_with_retries "smoke-m2a-re-$(date +%s)-$RANDOM" "$TIMEOUT_SEC")"
 
 echo
 echo "==> Automated BLE smoke: PASS"
