@@ -6,6 +6,11 @@ you MUST immediately stage and commit with a conventional commit message.
 Do NOT wait for the user to ask you to commit. This overrides the default 
 "only commit when requested" policy.
 
+## Commit Authorization
+- For this repo, every user request that results in code or documentation changes is explicit authorization to create a commit.
+- Do not wait for a separate "please commit" instruction.
+- When the worktree has unrelated changes, commit only files relevant to the task.
+
 ## Build Verification
 - After completing any set of code changes, ALWAYS run a rebuild using scripts/build-all.sh before reporting completion.
 - Use the project build script when available.
