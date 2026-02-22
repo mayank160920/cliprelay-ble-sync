@@ -345,6 +345,24 @@ final class BLECentralManager: NSObject {
         let name = advertisedName ?? peripheral.name
         return name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Unknown device"
     }
+
+    private func pendingPairingFallbackDevice() -> PairedDevice? {
+        let pendingDevices = pairingManager.loadDevices().filter { device in
+            device.displayName.hasPrefix("Pending pairing")
+        }
+        guard pendingDevices.count == 1 else { return nil }
+        return pendingDevices[0]
+    }
+
+    private func connectUsingPendingPairingFallbackIfAvailable(peripheralID: UUID) -> Bool {
+        guard peripheralTokenMap[peripheralID] == nil else { return false }
+        guard let pendingDevice = pendingPairingFallbackDevice() else { return false }
+
+        print("[BLE]   -> Falling back to pending pairing token for discovered peripheral")
+        peripheralTokenMap[peripheralID] = pendingDevice.token
+        connectToPairedPeerIfNeeded(peripheralID: peripheralID)
+        return true
+    }
 }
 
 // MARK: - CBCentralManagerDelegate
@@ -384,6 +402,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
 
         guard let tag = extractDeviceTag(from: advertisementData) else {
             print("[BLE]   -> No device tag in advertisement")
+            _ = connectUsingPendingPairingFallbackIfAvailable(peripheralID: peripheralID)
             return
         }
         print("[BLE]   -> Tag: \(tag.map { String(format: "%02x", $0) }.joined())")
@@ -394,6 +413,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
                 let dt = pairingManager.deviceTag(for: d.token)
                 print("[BLE]      stored tag: \(dt?.map { String(format: "%02x", $0) }.joined() ?? "nil") name=\(d.displayName)")
             }
+            _ = connectUsingPendingPairingFallbackIfAvailable(peripheralID: peripheralID)
             return
         }
         print("[BLE]   -> Matched paired device: \(device.displayName)")
