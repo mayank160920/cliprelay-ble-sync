@@ -37,20 +37,22 @@ For every completed task in this file:
   - `project.md`
   - `android/app/build.gradle.kts`
 
-- [ ] **Low:** Remove dead code / stale artifacts.
-  - `android/app/src/main/java/com/clipshare/models/ClipboardContent.kt`
-  - `macos/ClipShareMac/Sources/Models/ClipboardContent.swift`
-  - `android/app/src/main/res/values/strings.xml`
-  - `macos/ClipShareMac/Sources/Security/KeychainStore.swift`
-  - `macos/ClipShareMac/Sources/BLE/ChunkAssembler.swift`
-  - `android/app/src/main/java/com/clipshare/service/ClipShareService.kt`
+- [x] ~~**Low:** Remove dead code / stale artifacts.~~
+  - `android/app/src/main/java/com/clipshare/models/ClipboardContent.kt` (removed)
+  - `macos/ClipShareMac/Sources/Models/ClipboardContent.swift` (removed)
+  - `macos/ClipShareMac/Sources/Security/KeychainStore.swift` (`removeData` removed)
+  - `macos/ClipShareMac/Sources/BLE/ChunkAssembler.swift` (`clear` removed)
 
 - [ ] **Low:** Reduce unnecessary complexity in `BLECentralManager` (scan/connect/reconnect/chunking/crypto/dispatch/UI notifications).
   - `macos/ClipShareMac/Sources/BLE/BLECentralManager.swift`
 
 ## Testing / Quality To-Do
 
-- [ ] Add and maintain automated regression coverage for protocol and reconnect behavior.
+- [x] ~~Add and maintain automated regression coverage for protocol and reconnect behavior.~~
+  - `android/app/src/test/java/com/clipshare/contract/ProtocolFixtureCompatibilityTest.kt`
+  - `macos/ClipShareMac/Tests/GreenPasteTests/ProtocolFixtureCompatibilityTests.swift`
+  - `scripts/test-all.sh`
+  - `scripts/ble-hardware-smoke-auto.sh`
 
 ## Structure / Idiomaticity To-Do
 

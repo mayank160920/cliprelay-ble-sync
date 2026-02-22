@@ -20,13 +20,6 @@ final class ChunkAssembler {
         chunks.removeAll(keepingCapacity: true)
     }
 
-    func clear() {
-        expectedChunks = 0
-        expectedBytes = 0
-        encoding = "utf-8"
-        chunks.removeAll(keepingCapacity: true)
-    }
-
     func appendChunkFrame(_ frame: Data) {
         guard frame.count >= 2 else { return }
         let index = Int(frame[frame.startIndex]) << 8 | Int(frame[frame.startIndex + 1])

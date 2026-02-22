@@ -42,14 +42,4 @@ final class KeychainStore {
         return status == errSecSuccess
     }
 
-    @discardableResult
-    func removeData(for account: String) -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        let status = SecItemDelete(query as CFDictionary)
-        return status == errSecSuccess || status == errSecItemNotFound
-    }
 }
