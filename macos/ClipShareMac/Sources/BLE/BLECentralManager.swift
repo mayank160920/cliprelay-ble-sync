@@ -44,6 +44,9 @@ final class BLECentralManager: NSObject {
     private var connectedPeers: [UUID: ConnectedPeer] = [:]
 
     private var reconnectDelay: TimeInterval = 1
+    private let connectionAttemptTimeout: TimeInterval = 60
+    private var connectionWatchdogTimer: Timer?
+    private var connectingSinceByPeerID: [UUID: Date] = [:]
     private var lastInboundHash: String?
     private var pendingInboundHashByPeer: [UUID: String] = [:]
     private var assemblerByPeer: [UUID: ChunkAssembler] = [:]
@@ -59,6 +62,7 @@ final class BLECentralManager: NSObject {
         notifyAllState()
         if centralManager.state == .poweredOn {
             scan()
+            startConnectionWatchdogIfNeeded()
         }
     }
 
@@ -73,10 +77,12 @@ final class BLECentralManager: NSObject {
             }
         }
         connectingPeerIDs.removeAll()
+        connectingSinceByPeerID.removeAll()
         connectedPeers.removeAll()
         pendingInboundHashByPeer.removeAll()
         assemblerByPeer.removeAll()
         centralManager.stopScan()
+        stopConnectionWatchdog()
         notifyAllState()
     }
 
@@ -89,6 +95,7 @@ final class BLECentralManager: NSObject {
                 centralManager.cancelPeripheralConnection(peripheral)
             }
             connectingPeerIDs.remove(id)
+            connectingSinceByPeerID.removeValue(forKey: id)
             connectedPeers.removeValue(forKey: id)
             pendingInboundHashByPeer.removeValue(forKey: id)
             assemblerByPeer.removeValue(forKey: id)
@@ -198,6 +205,7 @@ final class BLECentralManager: NSObject {
         centralManager.cancelPeripheralConnection(peripheral)
 
         connectingPeerIDs.insert(peripheralID)
+        connectingSinceByPeerID[peripheralID] = Date()
         peripheral.delegate = self
         centralManager.connect(peripheral, options: nil)
     }
@@ -217,6 +225,38 @@ final class BLECentralManager: NSObject {
             self.centralManager.stopScan()
             self.scan()
         }
+    }
+
+    private func startConnectionWatchdogIfNeeded() {
+        guard connectionWatchdogTimer == nil else { return }
+        let timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+            self?.reapStaleConnectionAttempts()
+        }
+        connectionWatchdogTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopConnectionWatchdog() {
+        connectionWatchdogTimer?.invalidate()
+        connectionWatchdogTimer = nil
+    }
+
+    private func reapStaleConnectionAttempts() {
+        let now = Date()
+        let staleIDs = connectingPeerIDs.filter { id in
+            guard let startedAt = connectingSinceByPeerID[id] else { return true }
+            return now.timeIntervalSince(startedAt) > connectionAttemptTimeout
+        }
+        guard !staleIDs.isEmpty else { return }
+
+        for id in staleIDs {
+            if let peripheral = knownPeripherals[id] {
+                centralManager.cancelPeripheralConnection(peripheral)
+            }
+            connectingPeerIDs.remove(id)
+            connectingSinceByPeerID.removeValue(forKey: id)
+        }
+        scheduleReconnect()
     }
 
     // MARK: - Crypto helpers
@@ -301,14 +341,17 @@ extension BLECentralManager: CBCentralManagerDelegate {
         if central.state == .poweredOn {
             reconnectDelay = 1
             scan()
+            startConnectionWatchdogIfNeeded()
         } else {
             // Bluetooth turned off — all peripherals are invalidated by CoreBluetooth
             knownPeripherals.removeAll()
             connectingPeerIDs.removeAll()
+            connectingSinceByPeerID.removeAll()
             connectedPeers.removeAll()
             peripheralTokenMap.removeAll()
             pendingInboundHashByPeer.removeAll()
             assemblerByPeer.removeAll()
+            stopConnectionWatchdog()
             notifyAllState()
         }
     }
@@ -361,6 +404,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
         reconnectDelay = 1
         let peripheralID = peripheral.identifier
         connectingPeerIDs.remove(peripheralID)
+        connectingSinceByPeerID.removeValue(forKey: peripheralID)
         print("[BLE] didConnect: \(peripheral.name ?? "nil") id=\(peripheralID)")
 
         guard let token = peripheralTokenMap[peripheralID] else {
@@ -397,6 +441,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         print("[BLE] didFailToConnect: \(peripheral.name ?? "nil") error=\(error?.localizedDescription ?? "nil")")
         connectingPeerIDs.remove(peripheral.identifier)
+        connectingSinceByPeerID.removeValue(forKey: peripheral.identifier)
         scheduleReconnect()
     }
 
@@ -404,6 +449,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
         print("[BLE] didDisconnect: \(peripheral.name ?? "nil") error=\(error?.localizedDescription ?? "nil")")
         let peripheralID = peripheral.identifier
         connectingPeerIDs.remove(peripheralID)
+        connectingSinceByPeerID.removeValue(forKey: peripheralID)
         connectedPeers.removeValue(forKey: peripheralID)
         pendingInboundHashByPeer.removeValue(forKey: peripheralID)
         assemblerByPeer.removeValue(forKey: peripheralID)
@@ -414,11 +460,8 @@ extension BLECentralManager: CBCentralManagerDelegate {
         // (e.g. the phone re-enables Bluetooth). This avoids relying on the scan to
         // re-discover the peripheral, which won't happen while the duplicate filter is active.
         if peripheralTokenMap[peripheralID] != nil {
-            // Cancel first to release any lingering connection slot.
-            centralManager.cancelPeripheralConnection(peripheral)
-            connectingPeerIDs.insert(peripheralID)
-            peripheral.delegate = self
-            centralManager.connect(peripheral, options: nil)
+            knownPeripherals[peripheralID] = peripheral
+            connectToPairedPeerIfNeeded(peripheralID: peripheralID)
         }
 
         scheduleReconnect()

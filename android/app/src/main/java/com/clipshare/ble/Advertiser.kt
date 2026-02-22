@@ -5,22 +5,45 @@ import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 
 class Advertiser(private val serviceUuid: ParcelUuid) {
     companion object {
         private const val TAG = "Advertiser"
+        private const val RETRY_BASE_DELAY_MS = 1_000L
+        private const val RETRY_MAX_DELAY_MS = 30_000L
     }
 
     private var callback: AdvertiseCallback? = null
+    private var shouldAdvertise = false
+    private var includeDeviceName = true
+    private var retryAttempt = 0
+    private val handler = Handler(Looper.getMainLooper())
+    private val retryRunnable = Runnable {
+        if (shouldAdvertise && callback == null) {
+            startInternal()
+        }
+    }
 
     var deviceTag: ByteArray? = null
 
     fun start() {
+        shouldAdvertise = true
+        handler.removeCallbacks(retryRunnable)
+        startInternal()
+    }
+
+    private fun startInternal() {
         // Obtain the advertiser reference lazily so it's always current, even after a
         // Bluetooth toggle (the adapter reference captured at construction time goes stale).
-        val instance = BluetoothAdapter.getDefaultAdapter()?.bluetoothLeAdvertiser ?: return
+        val instance = BluetoothAdapter.getDefaultAdapter()?.bluetoothLeAdvertiser
+        if (instance == null) {
+            scheduleRetry("advertiser unavailable")
+            return
+        }
         if (callback != null) {
             return
         }
@@ -42,7 +65,7 @@ class Advertiser(private val serviceUuid: ParcelUuid) {
         // Manufacturer data: 2 (company ID) + 8 (tag) = 10 bytes + overhead ~12 bytes.
         // Device name: up to ~17 chars. Both fit in 31 bytes.
         val scanResponseBuilder = AdvertiseData.Builder()
-            .setIncludeDeviceName(true)
+            .setIncludeDeviceName(includeDeviceName)
         val tag = deviceTag
         if (tag != null) {
             // 0xFFFF = Bluetooth SIG reserved for testing/development
@@ -50,15 +73,44 @@ class Advertiser(private val serviceUuid: ParcelUuid) {
         }
         val scanResponse = scanResponseBuilder.build()
 
-        callback = object : AdvertiseCallback() {
+        val advertiseCallback = object : AdvertiseCallback() {
+            override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
+                retryAttempt = 0
+                Log.d(TAG, "BLE advertise started")
+            }
+
             override fun onStartFailure(errorCode: Int) {
-                Log.e(TAG, "BLE advertise start failed: $errorCode")
+                callback = null
+                if (!shouldAdvertise) return
+
+                if (
+                    errorCode == AdvertiseCallback.ADVERTISE_FAILED_DATA_TOO_LARGE &&
+                        includeDeviceName
+                ) {
+                    includeDeviceName = false
+                    retryAttempt = 0
+                    Log.w(TAG, "BLE advertise payload too large; retrying without device name")
+                } else {
+                    Log.e(TAG, "BLE advertise start failed: $errorCode")
+                }
+                scheduleRetry("start failure: $errorCode")
             }
         }
-        instance.startAdvertising(settings, advertiseData, scanResponse, callback)
+        callback = advertiseCallback
+        try {
+            instance.startAdvertising(settings, advertiseData, scanResponse, advertiseCallback)
+        } catch (e: SecurityException) {
+            callback = null
+            Log.e(TAG, "BLE advertise start threw SecurityException", e)
+            scheduleRetry("security exception")
+        }
     }
 
     fun stop() {
+        shouldAdvertise = false
+        retryAttempt = 0
+        includeDeviceName = true
+        handler.removeCallbacks(retryRunnable)
         val instance = BluetoothAdapter.getDefaultAdapter()?.bluetoothLeAdvertiser
         callback?.let { instance?.stopAdvertising(it) }
         callback = null
@@ -67,5 +119,15 @@ class Advertiser(private val serviceUuid: ParcelUuid) {
     fun restart() {
         stop()
         start()
+    }
+
+    private fun scheduleRetry(reason: String) {
+        if (!shouldAdvertise) return
+        val exponential = RETRY_BASE_DELAY_MS shl retryAttempt.coerceAtMost(8)
+        val delayMs = exponential.coerceAtMost(RETRY_MAX_DELAY_MS)
+        retryAttempt += 1
+        handler.removeCallbacks(retryRunnable)
+        handler.postDelayed(retryRunnable, delayMs)
+        Log.w(TAG, "Scheduling BLE advertise retry in ${delayMs}ms ($reason)")
     }
 }
