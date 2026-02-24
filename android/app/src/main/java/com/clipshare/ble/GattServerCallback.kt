@@ -18,11 +18,9 @@ class GattServerCallback(
         hasConnectedDevices: Boolean
     ) -> Unit
 ) : BluetoothGattServerCallback() {
-    companion object {
-        private val CCC_DESCRIPTOR_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
-    }
 
-    var server: BluetoothGattServer? = null
+
+    @Volatile var server: BluetoothGattServer? = null
     val notificationSent = Semaphore(0)
     private val connectedDevicesById = linkedMapOf<String, BluetoothDevice>()
     private val connectionStateMachine = BleConnectionStateMachine()
@@ -125,7 +123,7 @@ class GattServerCallback(
         offset: Int,
         value: ByteArray
     ) {
-        if (descriptor.uuid == CCC_DESCRIPTOR_UUID) {
+        if (descriptor.uuid == GattServerManager.CCC_DESCRIPTOR_UUID) {
             descriptor.value = value
         }
 

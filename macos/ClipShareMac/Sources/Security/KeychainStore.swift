@@ -37,6 +37,7 @@ final class KeychainStore {
         if status == errSecItemNotFound {
             var addQuery = query
             addQuery[kSecValueData as String] = data
+            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
             status = SecItemAdd(addQuery as CFDictionary, nil)
         }
         return status == errSecSuccess

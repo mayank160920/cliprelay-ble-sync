@@ -12,6 +12,7 @@ final class PairingManager {
     private static let keychainAccount = "paired_devices"
     private static let pendingDisplayNamePrefix = "Pending pairing"
     private let keychain = KeychainStore(service: "greenpaste")
+    private var tagCache: [String: Data] = [:]
 
     func loadDevices() -> [PairedDevice] {
         guard let data = keychain.data(for: Self.keychainAccount) else { return [] }
@@ -43,9 +44,13 @@ final class PairingManager {
         }
     }
 
-    func generateToken() -> String {
+    func generateToken() -> String? {
         var bytes = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else {
+            print("[Pairing] SecRandomCopyBytes failed with status \(status)")
+            return nil
+        }
         return bytes.map { String(format: "%02x", $0) }.joined()
     }
 
@@ -62,6 +67,7 @@ final class PairingManager {
     }
 
     func deviceTag(for token: String) -> Data? {
+        if let cached = tagCache[token] { return cached }
         guard let tokenData = hexToData(token) else { return nil }
         let ikm = SymmetricKey(data: tokenData)
         let tagKey = HKDF<SHA256>.deriveKey(
@@ -69,7 +75,9 @@ final class PairingManager {
             info: Data("greenpaste-tag-v1".utf8),
             outputByteCount: 8
         )
-        return tagKey.withUnsafeBytes { Data($0) }
+        let result = tagKey.withUnsafeBytes { Data($0) }
+        tagCache[token] = result
+        return result
     }
 
     func encryptionKey(for token: String) -> SymmetricKey? {
@@ -90,6 +98,7 @@ final class PairingManager {
     }
 
     private func persist(_ devices: [PairedDevice]) {
+        tagCache.removeAll()
         guard let data = try? JSONEncoder().encode(devices) else { return }
         keychain.setData(data, for: Self.keychainAccount)
     }

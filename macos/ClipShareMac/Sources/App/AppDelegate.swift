@@ -75,7 +75,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startPairing() {
         pairingManager.removePendingDevices()
 
-        let token = pairingManager.generateToken()
+        guard let token = pairingManager.generateToken() else {
+            print("[Pairing] Failed to generate secure token")
+            return
+        }
         let device = PairedDevice(
             token: token,
             displayName: "Pending pairing\u{2026}",

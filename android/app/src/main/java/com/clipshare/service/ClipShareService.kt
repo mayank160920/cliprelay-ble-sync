@@ -55,6 +55,8 @@ class ClipShareService : Service() {
     private val inboundStateMachine = BleInboundStateMachine()
     @Volatile
     private var bleStarted = false
+    @Volatile
+    private var isDestroyed = false
 
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -111,7 +113,7 @@ class ClipShareService : Service() {
             )
         )
 
-        advertiser = Advertiser(ParcelUuid(GattServerManager.SERVICE_UUID))
+        advertiser = Advertiser(this, ParcelUuid(GattServerManager.SERVICE_UUID))
         loadPairingState()
         DebugSmokeProbe.reset(this)
 
@@ -121,9 +123,10 @@ class ClipShareService : Service() {
     }
 
     override fun onDestroy() {
+        isDestroyed = true
         unregisterReceiver(bluetoothStateReceiver)
+        transferExecutor.shutdownNow()
         stopBleComponents()
-        transferExecutor.shutdown()
         super.onDestroy()
     }
 
@@ -264,6 +267,7 @@ class ClipShareService : Service() {
     }
 
     private fun pushPlainTextToMac(text: String) {
+        if (isDestroyed) return
         val plaintext = text.toByteArray(Charsets.UTF_8)
         if (plaintext.isEmpty() || plaintext.size > MAX_CLIPBOARD_BYTES) {
             return

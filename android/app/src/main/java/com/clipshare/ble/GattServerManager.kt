@@ -21,17 +21,22 @@ class GattServerManager(
         val SERVICE_UUID: UUID = UUID.fromString("c10b0001-1234-5678-9abc-def012345678")
         val AVAILABLE_UUID: UUID = UUID.fromString("c10b0002-1234-5678-9abc-def012345678")
         val DATA_UUID: UUID = UUID.fromString("c10b0003-1234-5678-9abc-def012345678")
-        private val CCC_DESCRIPTOR_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        val CCC_DESCRIPTOR_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 
-    private var server: BluetoothGattServer? = null
-    private var availableCharacteristic: BluetoothGattCharacteristic? = null
-    private var dataCharacteristic: BluetoothGattCharacteristic? = null
+    @Volatile private var server: BluetoothGattServer? = null
+    @Volatile private var availableCharacteristic: BluetoothGattCharacteristic? = null
+    @Volatile private var dataCharacteristic: BluetoothGattCharacteristic? = null
 
     fun start() {
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-        server = bluetoothManager.openGattServer(context, callback)
-        callback.server = server
+        val gattServer = bluetoothManager.openGattServer(context, callback)
+        if (gattServer == null) {
+            Log.e(TAG, "openGattServer returned null — Bluetooth adapter may be unavailable")
+            return
+        }
+        server = gattServer
+        callback.server = gattServer
 
         val service = BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
 

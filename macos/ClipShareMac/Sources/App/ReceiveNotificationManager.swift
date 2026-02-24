@@ -21,7 +21,7 @@ final class ReceiveNotificationManager {
         content.sound = .default
 
         let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
+            identifier: "clipboard-received",
             content: content,
             trigger: nil
         )

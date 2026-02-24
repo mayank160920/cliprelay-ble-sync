@@ -106,12 +106,12 @@ adb install -r dist/greenpaste-debug.apk
 
 If ADB is not found, add Android platform-tools to PATH.
 
-### 3) Pair devices (native BLE pairing)
+### 3) Pair devices
 
-1. Open Bluetooth settings on macOS and Android.
-2. Pair the two devices using the OS dialogs (numeric confirmation).
-3. Launch GreenPaste on Android and tap `Start Clipboard Service`.
-4. Launch GreenPaste on macOS (menu bar icon appears).
+1. Launch GreenPaste on macOS (menu bar icon appears).
+2. Click the menu bar icon and select "Pair New Device" to display a QR code.
+3. Launch GreenPaste on Android and tap "Pair with Mac".
+4. Scan the QR code with the Android app to complete pairing.
 
 ## Daily usage
 
@@ -128,4 +128,4 @@ If ADB is not found, add Android platform-tools to PATH.
 - Transport is BLE only (no cloud relay).
 - Content scope is text only.
 - Max payload is 100 KiB.
-- MVP security relies on BLE Secure Connections (no additional app-layer crypto).
+- All clipboard data is encrypted with AES-256-GCM using keys derived from the shared pairing token via HKDF.

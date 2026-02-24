@@ -53,10 +53,12 @@ final class BLECentralManager: NSObject {
     private var lastRSSIByPeerID: [UUID: Date] = [:]
     /// Peers that failed to respond to an RSSI read within the timeout window.
     private var rssiMissCountByPeerID: [UUID: Int] = [:]
+    private var isStopped = false
     private var pendingPairingToken: String?
     private var lastInboundHash: String?
     private var pendingInboundHashByPeer: [UUID: String] = [:]
     private var assemblerByPeer: [UUID: ChunkAssembler] = [:]
+    private var pendingOutboundFrames: [UUID: (peripheral: CBPeripheral, frames: [Data], nextIndex: Int)] = [:]
 
     init(clipboardWriter: ClipboardWriter, pairingManager: PairingManager) {
         self.clipboardWriter = clipboardWriter
@@ -66,6 +68,7 @@ final class BLECentralManager: NSObject {
     }
 
     func start() {
+        isStopped = false
         notifyAllState()
         if centralManager.state == .poweredOn {
             scan()
@@ -82,6 +85,7 @@ final class BLECentralManager: NSObject {
     }
 
     func stop() {
+        isStopped = true
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         // Cancel both connected and connecting peripherals to release all connection slots.
         for peer in connectedPeers.values {
@@ -97,6 +101,7 @@ final class BLECentralManager: NSObject {
         connectedPeers.removeAll()
         pendingInboundHashByPeer.removeAll()
         assemblerByPeer.removeAll()
+        pendingOutboundFrames.removeAll()
         centralManager.stopScan()
         stopConnectionWatchdog()
         stopKeepaliveTimer()
@@ -130,6 +135,7 @@ final class BLECentralManager: NSObject {
         connectedPeers.removeAll()
         pendingInboundHashByPeer.removeAll()
         assemblerByPeer.removeAll()
+        pendingOutboundFrames.removeAll()
         rssiMissCountByPeerID.removeAll()
         lastRSSIByPeerID.removeAll()
         notifyAllState()
@@ -164,6 +170,7 @@ final class BLECentralManager: NSObject {
             connectedPeers.removeValue(forKey: id)
             pendingInboundHashByPeer.removeValue(forKey: id)
             assemblerByPeer.removeValue(forKey: id)
+            pendingOutboundFrames.removeValue(forKey: id)
             rssiMissCountByPeerID.removeValue(forKey: id)
             lastRSSIByPeerID.removeValue(forKey: id)
             peripheralTokenMap.removeValue(forKey: id)
@@ -208,19 +215,10 @@ final class BLECentralManager: NSObject {
 
             peer.peripheral.writeValue(metadataData, for: availableChar, type: .withResponse)
 
-            for (index, frame) in frames.enumerated() {
-                let delay = Double(index) * 0.01
-                let writeType: CBCharacteristicWriteType = index == 0 ? .withResponse : .withoutResponse
-                let peripheral = peer.peripheral
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    guard
-                        let self,
-                        let currentPeer = self.connectedPeers[peripheral.identifier],
-                        let dataChar = currentPeer.dataCharacteristic
-                    else { return }
-                    peripheral.writeValue(frame, for: dataChar, type: writeType)
-                }
-            }
+            // Queue frames for flow-controlled sending via peripheralIsReady callback
+            let peripheralID = peer.peripheral.identifier
+            pendingOutboundFrames[peripheralID] = (peer.peripheral, frames, 0)
+            drainOutboundQueue(for: peer.peripheral)
         }
     }
 
@@ -247,9 +245,19 @@ final class BLECentralManager: NSObject {
     }
 
     /// Stable UUID derived from token for UI identification (not a BLE peripheral UUID).
+    /// Falls back to a deterministic UUID based on the token string if tag derivation fails.
     private func deviceStableID(token: String) -> UUID {
         guard let data = pairingManager.deviceTag(for: token) else {
-            return UUID()
+            // Use a deterministic hash of the token so the same token always yields the same UUID
+            let hashBytes = Array(Data(token.utf8).prefix(16))
+            var bytes = [UInt8](repeating: 0, count: 16)
+            for (i, b) in hashBytes.enumerated() { bytes[i] = b }
+            return UUID(uuid: (
+                bytes[0], bytes[1], bytes[2], bytes[3],
+                bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9], bytes[10], bytes[11],
+                bytes[12], bytes[13], bytes[14], bytes[15]
+            ))
         }
         // Pad to 16 bytes for UUID
         var bytes = [UInt8](repeating: 0, count: 16)
@@ -417,6 +425,35 @@ final class BLECentralManager: NSObject {
         }
     }
 
+    // MARK: - Outbound flow control
+
+    private func drainOutboundQueue(for peripheral: CBPeripheral) {
+        let peripheralID = peripheral.identifier
+        guard var entry = pendingOutboundFrames[peripheralID] else { return }
+        guard let currentPeer = connectedPeers[peripheralID],
+              let dataChar = currentPeer.dataCharacteristic else {
+            pendingOutboundFrames.removeValue(forKey: peripheralID)
+            return
+        }
+
+        while entry.nextIndex < entry.frames.count {
+            let index = entry.nextIndex
+            let frame = entry.frames[index]
+            let writeType: CBCharacteristicWriteType = index == 0 ? .withResponse : .withoutResponse
+
+            if writeType == .withoutResponse && !peripheral.canSendWriteWithoutResponse {
+                // Wait for peripheralIsReady(toSendWriteWithoutResponse:) callback
+                pendingOutboundFrames[peripheralID] = entry
+                return
+            }
+
+            peripheral.writeValue(frame, for: dataChar, type: writeType)
+            entry.nextIndex += 1
+        }
+
+        pendingOutboundFrames.removeValue(forKey: peripheralID)
+    }
+
     // MARK: - Crypto helpers
 
     private func encryptionKeyForPeer(_ peripheralID: UUID) -> SymmetricKey? {
@@ -534,6 +571,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
             peripheralTokenMap.removeAll()
             pendingInboundHashByPeer.removeAll()
             assemblerByPeer.removeAll()
+            pendingOutboundFrames.removeAll()
             rssiMissCountByPeerID.removeAll()
             lastRSSIByPeerID.removeAll()
             stopConnectionWatchdog()
@@ -646,9 +684,14 @@ extension BLECentralManager: CBCentralManagerDelegate {
         connectedPeers.removeValue(forKey: peripheralID)
         pendingInboundHashByPeer.removeValue(forKey: peripheralID)
         assemblerByPeer.removeValue(forKey: peripheralID)
+        pendingOutboundFrames.removeValue(forKey: peripheralID)
         rssiMissCountByPeerID.removeValue(forKey: peripheralID)
         lastRSSIByPeerID.removeValue(forKey: peripheralID)
         notifyAllState()
+
+        // Don't reconnect if we've been stopped — late CoreBluetooth callbacks
+        // can fire after stop() and would otherwise undo the shutdown.
+        guard !isStopped else { return }
 
         // Re-queue a connect on the same peripheral object. CoreBluetooth holds this as a
         // pending request and completes it as soon as the peripheral is available again
@@ -657,9 +700,11 @@ extension BLECentralManager: CBCentralManagerDelegate {
         if peripheralTokenMap[peripheralID] != nil {
             knownPeripherals[peripheralID] = peripheral
             connectToPairedPeerIfNeeded(peripheralID: peripheralID)
+        } else {
+            // Only restart scanning for unknown peripherals; the direct connect
+            // above is sufficient for paired devices and avoids duplicate requests.
+            scheduleReconnect()
         }
-
-        scheduleReconnect()
     }
 }
 
@@ -714,13 +759,16 @@ extension BLECentralManager: CBPeripheralDelegate {
         chunkAssembler.appendChunkFrame(data)
         guard let assembledData = chunkAssembler.assembleData() else { return }
 
-        // Verify hash against metadata
-        let assembledHash = sha256Hex(assembledData)
-        if let metadataHash = pendingInboundHashByPeer[peripheralID], metadataHash != assembledHash {
-            pendingInboundHashByPeer.removeValue(forKey: peripheralID)
+        // Verify hash against metadata — reject if metadata was never received
+        guard let metadataHash = pendingInboundHashByPeer.removeValue(forKey: peripheralID) else {
+            print("[BLE] Rejecting assembled data: no metadata hash received for peer \(peripheralID)")
             return
         }
-        pendingInboundHashByPeer.removeValue(forKey: peripheralID)
+        let assembledHash = sha256Hex(assembledData)
+        guard metadataHash == assembledHash else {
+            print("[BLE] Hash mismatch: expected=\(metadataHash) got=\(assembledHash)")
+            return
+        }
 
         // Decrypt
         guard let key = encryptionKeyForPeer(peripheralID) else { return }
@@ -733,6 +781,10 @@ extension BLECentralManager: CBPeripheralDelegate {
         lastInboundHash = outputHash
         clipboardWriter.writeText(output)
         onClipboardReceived?(output)
+    }
+
+    func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
+        drainOutboundQueue(for: peripheral)
     }
 
     func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber, error: Error?) {

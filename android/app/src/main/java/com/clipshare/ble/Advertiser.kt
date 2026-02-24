@@ -1,16 +1,17 @@
 package com.clipshare.ble
 
-import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 
-class Advertiser(private val serviceUuid: ParcelUuid) {
+class Advertiser(private val context: Context, private val serviceUuid: ParcelUuid) {
     companion object {
         private const val TAG = "Advertiser"
         private const val RETRY_BASE_DELAY_MS = 1_000L
@@ -51,7 +52,8 @@ class Advertiser(private val serviceUuid: ParcelUuid) {
     private fun startInternal() {
         // Obtain the advertiser reference lazily so it's always current, even after a
         // Bluetooth toggle (the adapter reference captured at construction time goes stale).
-        val instance = BluetoothAdapter.getDefaultAdapter()?.bluetoothLeAdvertiser
+        val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+        val instance = btManager?.adapter?.bluetoothLeAdvertiser
         if (instance == null) {
             scheduleRetry("advertiser unavailable")
             return
@@ -143,7 +145,8 @@ class Advertiser(private val serviceUuid: ParcelUuid) {
     }
 
     private fun stopAdvertisingInternal() {
-        val instance = BluetoothAdapter.getDefaultAdapter()?.bluetoothLeAdvertiser
+        val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+        val instance = btManager?.adapter?.bluetoothLeAdvertiser
         callback?.let { instance?.stopAdvertising(it) }
         callback = null
     }

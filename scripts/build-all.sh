@@ -73,7 +73,6 @@ build_mac() {
   fi
 
   local app_dir="$DIST_DIR/GreenPaste.app"
-  rm -rf "$DIST_DIR/ClipShareMac.app"
   rm -rf "$app_dir"
   mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 
