@@ -53,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
                 guard self.awaitingNewPairingConnection else { return }
                 guard self.pairingWindowController.isShowing else {
-                    self.awaitingNewPairingConnection = false
+                    self.cancelPendingPairingFlow(removePendingDevice: true)
                     return
                 }
 
@@ -107,8 +107,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handlePairingWindowClosed() {
         guard awaitingNewPairingConnection else { return }
+        cancelPendingPairingFlow(removePendingDevice: true)
+    }
+
+    private func cancelPendingPairingFlow(removePendingDevice: Bool) {
         awaitingNewPairingConnection = false
-        pairingManager.removePendingDevices()
+        if removePendingDevice {
+            pairingManager.removePendingDevices()
+        }
         bleManager?.setPendingPairingToken(nil)
         bleManager?.notifyAllState()
     }
