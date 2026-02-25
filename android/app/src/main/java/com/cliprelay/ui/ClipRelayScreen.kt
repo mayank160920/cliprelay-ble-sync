@@ -5,7 +5,6 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,9 +31,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,7 +46,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 
@@ -88,19 +84,6 @@ fun ClipRelayScreen(
         animationSpec = tween(600),
         label = "bgBottom"
     )
-
-    // Toast state
-    var showToast by remember { mutableStateOf(false) }
-    var toastMessage by remember { mutableStateOf("") }
-
-    LaunchedEffect(state) {
-        if (state is AppState.Connected) {
-            toastMessage = if (state.deviceName != null) "Connected to ${state.deviceName}" else "Connected to Mac"
-            showToast = true
-            delay(3000)
-            showToast = false
-        }
-    }
 
     Box(
         modifier = Modifier
@@ -163,39 +146,6 @@ fun ClipRelayScreen(
             )
             Spacer(modifier = Modifier.weight(1f))
             FooterSection()
-        }
-
-        // Toast (slides in from bottom)
-        AnimatedVisibility(
-            visible = showToast,
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 80.dp, start = 20.dp, end = 20.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF323232))
-                    .padding(horizontal = 20.dp, vertical = 14.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(NeonGreen)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = toastMessage,
-                        color = Color.White,
-                        fontSize = 14.sp
-                    )
-                }
-            }
         }
 
         // Pairing burst overlay
@@ -384,7 +334,7 @@ private fun MainCard(
                 DeviceNode(
                     isPhone = false,
                     state = state,
-                    label = deviceName ?: "MacBook"
+                    label = deviceName ?: "Mac"
                 )
             }
 
