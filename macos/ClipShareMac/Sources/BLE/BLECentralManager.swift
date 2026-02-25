@@ -50,7 +50,8 @@ final class BLECentralManager: NSObject {
     private var keepaliveTimer: Timer?
     private var scanCycleTimer: Timer?
     private var connectingSinceByPeerID: [UUID: Date] = [:]
-    private var lastRSSIByPeerID: [UUID: Date] = [:]
+    /// Outstanding RSSI probe timestamp per peer.
+    private var pendingRSSIProbeByPeerID: [UUID: Date] = [:]
     /// Peers that failed to respond to an RSSI read within the timeout window.
     private var rssiMissCountByPeerID: [UUID: Int] = [:]
     private var isStopped = false
@@ -137,7 +138,7 @@ final class BLECentralManager: NSObject {
         assemblerByPeer.removeAll()
         pendingOutboundFrames.removeAll()
         rssiMissCountByPeerID.removeAll()
-        lastRSSIByPeerID.removeAll()
+        pendingRSSIProbeByPeerID.removeAll()
         notifyAllState()
 
         // Reset backoff and restart scanning + direct connection attempts.
@@ -172,7 +173,7 @@ final class BLECentralManager: NSObject {
             assemblerByPeer.removeValue(forKey: id)
             pendingOutboundFrames.removeValue(forKey: id)
             rssiMissCountByPeerID.removeValue(forKey: id)
-            lastRSSIByPeerID.removeValue(forKey: id)
+            pendingRSSIProbeByPeerID.removeValue(forKey: id)
             peripheralTokenMap.removeValue(forKey: id)
         }
 
@@ -363,7 +364,7 @@ final class BLECentralManager: NSObject {
         keepaliveTimer?.invalidate()
         keepaliveTimer = nil
         rssiMissCountByPeerID.removeAll()
-        lastRSSIByPeerID.removeAll()
+        pendingRSSIProbeByPeerID.removeAll()
     }
 
     private func probeConnectedPeers() {
@@ -371,8 +372,13 @@ final class BLECentralManager: NSObject {
         let now = Date()
         for (id, peer) in connectedPeers {
             // Check if the previous RSSI probe was answered
-            if let lastProbe = lastRSSIByPeerID[id], now.timeIntervalSince(lastProbe) > 45 {
-                // Previous probe wasn't answered within the expected window
+            if let pendingProbe = pendingRSSIProbeByPeerID[id] {
+                // Wait for callback until timeout. Don't enqueue another probe while
+                // one is already outstanding.
+                if now.timeIntervalSince(pendingProbe) <= 45 {
+                    continue
+                }
+
                 let missCount = (rssiMissCountByPeerID[id] ?? 0) + 1
                 rssiMissCountByPeerID[id] = missCount
                 print("[BLE] RSSI probe timeout for \(peer.displayName) (miss #\(missCount))")
@@ -380,11 +386,12 @@ final class BLECentralManager: NSObject {
                     print("[BLE] Forcing disconnect of unresponsive peer \(peer.displayName)")
                     centralManager.cancelPeripheralConnection(peer.peripheral)
                     rssiMissCountByPeerID.removeValue(forKey: id)
-                    lastRSSIByPeerID.removeValue(forKey: id)
+                    pendingRSSIProbeByPeerID.removeValue(forKey: id)
                     continue
                 }
             }
-            lastRSSIByPeerID[id] = now
+
+            pendingRSSIProbeByPeerID[id] = now
             peer.peripheral.readRSSI()
         }
     }
@@ -573,7 +580,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
             assemblerByPeer.removeAll()
             pendingOutboundFrames.removeAll()
             rssiMissCountByPeerID.removeAll()
-            lastRSSIByPeerID.removeAll()
+            pendingRSSIProbeByPeerID.removeAll()
             stopConnectionWatchdog()
             stopKeepaliveTimer()
             stopScanCycleTimer()
@@ -686,7 +693,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
         assemblerByPeer.removeValue(forKey: peripheralID)
         pendingOutboundFrames.removeValue(forKey: peripheralID)
         rssiMissCountByPeerID.removeValue(forKey: peripheralID)
-        lastRSSIByPeerID.removeValue(forKey: peripheralID)
+        pendingRSSIProbeByPeerID.removeValue(forKey: peripheralID)
         notifyAllState()
 
         // Don't reconnect if we've been stopped — late CoreBluetooth callbacks
@@ -791,11 +798,20 @@ extension BLECentralManager: CBPeripheralDelegate {
         let peripheralID = peripheral.identifier
         if error != nil {
             print("[BLE] RSSI read failed for \(peripheral.name ?? "nil"): \(error!.localizedDescription)")
-            // Don't reset miss counter — let the timeout logic handle it
+            let missCount = (rssiMissCountByPeerID[peripheralID] ?? 0) + 1
+            rssiMissCountByPeerID[peripheralID] = missCount
+            pendingRSSIProbeByPeerID.removeValue(forKey: peripheralID)
+            if missCount >= 2 {
+                if let peer = connectedPeers[peripheralID] {
+                    print("[BLE] Forcing disconnect after RSSI read failures for \(peer.displayName)")
+                }
+                centralManager.cancelPeripheralConnection(peripheral)
+                rssiMissCountByPeerID.removeValue(forKey: peripheralID)
+            }
             return
         }
         // Successful RSSI response — peer is alive
         rssiMissCountByPeerID.removeValue(forKey: peripheralID)
-        lastRSSIByPeerID[peripheralID] = Date()
+        pendingRSSIProbeByPeerID.removeValue(forKey: peripheralID)
     }
 }
