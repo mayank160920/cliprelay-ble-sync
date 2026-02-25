@@ -36,7 +36,7 @@ class GattServerManager(
         val gattServer = bluetoothManager.openGattServer(context, callback)
         if (gattServer == null) {
             Log.e(TAG, "openGattServer returned null — Bluetooth adapter may be unavailable")
-            return
+            throw IllegalStateException("openGattServer returned null — cannot start GATT server")
         }
         server = gattServer
         callback.server = gattServer

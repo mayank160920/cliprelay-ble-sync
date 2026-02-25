@@ -31,4 +31,13 @@ class BleConnectionStateMachineTest {
 
         assertEquals(emptySet<String>(), machine.snapshot())
     }
+
+    @Test
+    fun freshMachine_hasNoConnectedDevices() {
+        val machine = BleConnectionStateMachine()
+
+        assertTrue(machine.snapshot().isEmpty())
+        assertFalse(machine.onConnectionChanged("AA:BB:CC:DD:EE:01", isConnected = false))
+        assertTrue(machine.snapshot().isEmpty())
+    }
 }

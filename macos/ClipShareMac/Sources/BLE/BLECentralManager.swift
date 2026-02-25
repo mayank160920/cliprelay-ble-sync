@@ -26,6 +26,7 @@ private struct ConnectedPeer {
     let peripheral: CBPeripheral
     let token: String
     let displayName: String
+    let connectedAt: Date
     var availableCharacteristic: CBCharacteristic?
     var dataCharacteristic: CBCharacteristic?
 }
@@ -232,10 +233,10 @@ final class BLECentralManager: NSObject {
     }
 
     private func connectedPeerSummaries() -> [PeerSummary] {
-        connectedPeers.map {
-            PeerSummary(id: deviceStableID(token: $0.value.token), description: $0.value.displayName, token: $0.value.token)
-        }
-        .sorted { $0.description.localizedCaseInsensitiveCompare($1.description) == .orderedAscending }
+        connectedPeers.values
+            .filter { $0.availableCharacteristic != nil && $0.dataCharacteristic != nil }
+            .map { PeerSummary(id: deviceStableID(token: $0.token), description: $0.displayName, token: $0.token) }
+            .sorted { $0.description.localizedCaseInsensitiveCompare($1.description) == .orderedAscending }
     }
 
     private func trustedPeerSummaries() -> [PeerSummary] {
@@ -328,12 +329,29 @@ final class BLECentralManager: NSObject {
         connectionWatchdogTimer = nil
     }
 
+    private let serviceDiscoveryTimeout: TimeInterval = 15
+
     private func reapStaleConnectionAttempts() {
         let now = Date()
         let staleIDs = connectingPeerIDs.filter { id in
             guard let startedAt = connectingSinceByPeerID[id] else { return true }
             return now.timeIntervalSince(startedAt) > connectionAttemptTimeout
         }
+
+        // Also reap connected peers that haven't completed characteristic discovery
+        let staleDiscoveryIDs = connectedPeers.filter { (_, peer) in
+            peer.availableCharacteristic == nil || peer.dataCharacteristic == nil
+        }.filter { (_, peer) in
+            now.timeIntervalSince(peer.connectedAt) > serviceDiscoveryTimeout
+        }.map(\.key)
+
+        for id in staleDiscoveryIDs {
+            if let peer = connectedPeers[id] {
+                print("[BLE] Service discovery timeout for \(peer.displayName) — disconnecting")
+                centralManager.cancelPeripheralConnection(peer.peripheral)
+            }
+        }
+
         guard !staleIDs.isEmpty else { return }
 
         for id in staleIDs {
@@ -393,6 +411,12 @@ final class BLECentralManager: NSObject {
 
             pendingRSSIProbeByPeerID[id] = now
             peer.peripheral.readRSSI()
+
+            // GATT-level heartbeat: read the Available characteristic to verify
+            // the remote GATT server is still functional (not just link-layer alive).
+            if let availableChar = peer.availableCharacteristic {
+                peer.peripheral.readValue(for: availableChar)
+            }
         }
     }
 
@@ -668,6 +692,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
             peripheral: peripheral,
             token: token,
             displayName: displayName,
+            connectedAt: Date(),
             availableCharacteristic: nil,
             dataCharacteristic: nil
         )
@@ -743,13 +768,26 @@ extension BLECentralManager: CBPeripheralDelegate {
         }
 
         connectedPeers[peripheralID] = peer
+        notifyAllState()
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        let peripheralID = peripheral.identifier
+
+        // GATT heartbeat: a read error on any characteristic means the remote
+        // GATT server is gone — force-disconnect to trigger reconnection.
+        if let error {
+            print("[BLE] GATT read error for \(peripheral.name ?? "nil"): \(error.localizedDescription)")
+            if let peer = connectedPeers[peripheralID] {
+                print("[BLE] GATT heartbeat failure — disconnecting \(peer.displayName)")
+                centralManager.cancelPeripheralConnection(peer.peripheral)
+            }
+            return
+        }
+
         guard let data = characteristic.value else { return }
         print("[BLE] didUpdateValue: char=\(characteristic.uuid.uuidString) bytes=\(data.count)")
 
-        let peripheralID = peripheral.identifier
         if characteristic.uuid == BLEProtocol.availableUUID {
             processAvailableMetadata(data, for: peripheralID)
             return
