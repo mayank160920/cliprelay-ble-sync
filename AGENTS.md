@@ -27,6 +27,12 @@ Do NOT wait for the user to ask you to commit. This overrides the default
 - If the hardware tests fail, fix the failures before committing or reporting completion.
 - If no Android device is connected, skip the hardware tests and report that they were skipped due to no device being available.
 
+## App Restart After Code Changes
+- After every major code change (new feature, bug fix, refactor), restart both apps so the user can immediately verify the fix:
+  - **Mac**: Kill any running GreenPaste process (`pkill -f GreenPaste`) and relaunch with `open dist/GreenPaste.app`
+  - **Android**: Install the new APK (`adb install -r dist/greenpaste-debug.apk`), force-stop the app (`adb shell am force-stop com.clipshare`), and relaunch (`adb shell am start -n com.clipshare/.ui.MainActivity`)
+- Do not skip this step or tell the user to do it manually.
+
 ## Auto-Commit
 - After completing a major set of code changes (new feature, bug fix, refactor, etc.) and verifying the build passes, automatically create a git commit and push it.
 - Use a concise, descriptive commit message summarizing the changes.
