@@ -1,4 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#39FF14</color>
+
+    <!-- Greens -->
+    <color name="green_neon">#39FF14</color>
+    <color name="green_dark">#2E7D32</color>
+    <color name="green_title">#1B5E20</color>
+    <color name="green_text">#1B8A1B</color>
+    <color name="green_icon">#1B9E1B</color>
+
+    <!-- Backgrounds -->
+    <color name="bg_top_unpaired">#E8F5E9</color>
+    <color name="bg_top_connected">#D6F5D6</color>
+    <color name="bg_bottom_unpaired">#F0F0F0</color>
+    <color name="bg_bottom_connected">#F0F7F0</color>
+
+    <!-- UI -->
+    <color name="card_white">#FFFFFF</color>
+    <color name="toast_bg">#323232</color>
 </resources>

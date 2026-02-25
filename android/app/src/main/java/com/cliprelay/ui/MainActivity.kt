@@ -9,49 +9,45 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
-import android.view.View
-import android.widget.TextView
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
-import com.cliprelay.R
 import com.cliprelay.pairing.PairingStore
 import com.cliprelay.permissions.BlePermissions
 import com.cliprelay.service.ClipRelayService
 
 class MainActivity : AppCompatActivity() {
-    companion object {
-        private const val PERMISSION_REQUEST_CODE = 100
-    }
 
-    private lateinit var status: TextView
-    private lateinit var pairButton: com.google.android.material.button.MaterialButton
-    private lateinit var unpairButton: com.google.android.material.button.MaterialButton
-    private var isPaired = false
-    private var connectedDeviceName: String? = null
+    private val viewModel: MainViewModel by viewModels()
 
     private val connectionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == ClipRelayService.ACTION_CONNECTION_STATE) {
                 val connected = intent.getBooleanExtra(ClipRelayService.EXTRA_CONNECTED, false)
-                if (connected) {
-                    connectedDeviceName = intent.getStringExtra(ClipRelayService.EXTRA_DEVICE_NAME)
-                } else {
-                    connectedDeviceName = null
-                }
-                updateUI(connected)
+                val name = intent.getStringExtra(ClipRelayService.EXTRA_DEVICE_NAME)
+                viewModel.onConnectionChanged(connected, name)
             }
         }
+    }
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        ensureServiceRunning()
+        val queryIntent = Intent(this, ClipRelayService::class.java)
+        queryIntent.action = ClipRelayService.ACTION_QUERY_CONNECTION
+        startServiceSafely(queryIntent)
     }
 
     private val scannerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK) {
-            isPaired = true
-            updateUI(connected = false)
-            // Tell service to reload pairing and restart advertising
+            viewModel.onPaired()
             val reloadIntent = Intent(this, ClipRelayService::class.java)
             reloadIntent.action = ClipRelayService.ACTION_RELOAD_PAIRING
             startServiceSafely(reloadIntent)
@@ -60,27 +56,34 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
         requestRuntimePermissions()
         ensureServiceRunning()
 
-        status = findViewById(R.id.statusText)
-        pairButton = findViewById(R.id.pairWithMacButton)
-        unpairButton = findViewById(R.id.unpairButton)
-        isPaired = PairingStore(this).loadToken() != null
-        updateUI(connected = false)
+        val isPaired = PairingStore(this).loadToken() != null
+        viewModel.initState(isPaired)
 
-        pairButton.setOnClickListener {
-            scannerLauncher.launch(Intent(this, QrScannerActivity::class.java))
-        }
-        unpairButton.setOnClickListener {
-            PairingStore(this).clear()
-            isPaired = false
-            updateUI(connected = false)
-            val reloadIntent = Intent(this, ClipRelayService::class.java)
-            reloadIntent.action = ClipRelayService.ACTION_RELOAD_PAIRING
-            startServiceSafely(reloadIntent)
+        setContent {
+            val state by viewModel.state.collectAsState()
+            val showBurst by viewModel.showBurst.collectAsState()
+
+            ClipRelayScreen(
+                state = state,
+                showBurst = showBurst,
+                onPairClick = {
+                    scannerLauncher.launch(Intent(this, QrScannerActivity::class.java))
+                },
+                onUnpairClick = {
+                    PairingStore(this).clear()
+                    viewModel.onUnpaired()
+                    val reloadIntent = Intent(this, ClipRelayService::class.java)
+                    reloadIntent.action = ClipRelayService.ACTION_RELOAD_PAIRING
+                    startServiceSafely(reloadIntent)
+                },
+                onBurstShown = {
+                    viewModel.onBurstShown()
+                }
+            )
         }
     }
 
@@ -93,7 +96,6 @@ class MainActivity : AppCompatActivity() {
             filter,
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
-        // Ask service for current connection state
         val queryIntent = Intent(this, ClipRelayService::class.java)
         queryIntent.action = ClipRelayService.ACTION_QUERY_CONNECTION
         startServiceSafely(queryIntent)
@@ -104,43 +106,12 @@ class MainActivity : AppCompatActivity() {
         unregisterReceiver(connectionReceiver)
     }
 
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != PERMISSION_REQUEST_CODE) return
-
-        ensureServiceRunning()
-        val queryIntent = Intent(this, ClipRelayService::class.java)
-        queryIntent.action = ClipRelayService.ACTION_QUERY_CONNECTION
-        startServiceSafely(queryIntent)
-    }
-
-    private fun updateUI(connected: Boolean) {
-        status.text = when {
-            !isPaired -> getString(R.string.status_help)
-            connected -> {
-                val name = connectedDeviceName
-                if (name != null) getString(R.string.status_connected_to, name)
-                else getString(R.string.status_connected)
-            }
-            else -> getString(R.string.status_paired)
-        }
-        pairButton.visibility = if (isPaired) View.GONE else View.VISIBLE
-        unpairButton.visibility = if (isPaired) View.VISIBLE else View.GONE
-    }
-
     private fun ensureServiceRunning() {
         startServiceSafely(Intent(this, ClipRelayService::class.java))
     }
 
     private fun startServiceSafely(intent: Intent) {
-        if (!BlePermissions.hasRequiredRuntimePermissions(this)) {
-            return
-        }
-
+        if (!BlePermissions.hasRequiredRuntimePermissions(this)) return
         val started = runCatching {
             ContextCompat.startForegroundService(this, intent)
         }.isSuccess
@@ -151,19 +122,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestRuntimePermissions() {
         val permissions = BlePermissions.requiredRuntimePermissions().toMutableList()
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-
         if (permissions.isEmpty()) return
-
         val missing = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
-
         if (missing.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, missing.toTypedArray(), PERMISSION_REQUEST_CODE)
+            permissionLauncher.launch(missing.toTypedArray())
         }
     }
 }
