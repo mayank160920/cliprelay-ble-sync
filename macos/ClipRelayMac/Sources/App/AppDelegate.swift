@@ -30,6 +30,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bleManager = BLECentralManager(clipboardWriter: clipboardWriter, pairingManager: pairingManager)
         bleManager?.onClipboardReceived = { [weak self] text in
             self?.notificationManager.postClipboardReceived(text: text)
+            DispatchQueue.main.async {
+                self?.statusBarController.flashSyncIndicator()
+            }
+        }
+        bleManager?.onClipboardSent = { [weak self] in
+            DispatchQueue.main.async {
+                self?.statusBarController.flashSyncIndicator()
+            }
         }
 
         clipboardMonitor = ClipboardMonitor { [weak self] text in

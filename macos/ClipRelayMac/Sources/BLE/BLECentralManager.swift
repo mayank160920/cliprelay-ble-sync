@@ -35,6 +35,7 @@ final class BLECentralManager: NSObject {
     var onConnectedPeersChanged: (([PeerSummary]) -> Void)?
     var onTrustedPeersChanged: (([PeerSummary]) -> Void)?
     var onClipboardReceived: ((String) -> Void)?
+    var onClipboardSent: (() -> Void)?
 
     private let clipboardWriter: ClipboardWriter
     private let pairingManager: PairingManager
@@ -227,6 +228,8 @@ final class BLECentralManager: NSObject {
             pendingOutboundFrames[peripheralID] = (peer.peripheral, frames, 0)
             drainOutboundQueue(for: peer.peripheral)
         }
+
+        onClipboardSent?()
     }
 
     // MARK: - Notify UI

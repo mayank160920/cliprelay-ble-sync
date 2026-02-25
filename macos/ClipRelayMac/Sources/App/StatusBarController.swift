@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import QuartzCore
 
 final class StatusBarController {
     var onPairNewDeviceRequested: (() -> Void)?
@@ -15,6 +16,7 @@ final class StatusBarController {
     private lazy var disconnectedDot: NSImage = makeStatusDot(color: .tertiaryLabelColor)
 
     private var baseStatusBarImage: NSImage?
+    private var syncPulseTimer: Timer?
 
     init() {
         baseStatusBarImage = loadStatusBarIcon()
@@ -57,6 +59,35 @@ final class StatusBarController {
     func setTrustedPeers(_ peers: [PeerSummary]) {
         trustedPeers = peers
         renderMenu()
+    }
+
+    /// Briefly pulses the status bar icon to indicate a clipboard sync.
+    func flashSyncIndicator() {
+        guard let button = statusItem.button, let base = baseStatusBarImage else { return }
+
+        // Cancel any in-progress pulse
+        syncPulseTimer?.invalidate()
+
+        // Show bright highlight icon
+        let highlight = base.colorized(with: .systemYellow)
+        highlight.isTemplate = false
+        button.image = highlight
+
+        // Enable layer-backed view for Core Animation
+        button.wantsLayer = true
+        if let layer = button.layer {
+            let pulse = CAKeyframeAnimation(keyPath: "transform.scale")
+            pulse.values = [1.0, 1.3, 1.0]
+            pulse.keyTimes = [0, 0.4, 1.0]
+            pulse.duration = 0.35
+            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            layer.add(pulse, forKey: "syncPulse")
+        }
+
+        // Restore normal icon after the animation completes
+        syncPulseTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in
+            self?.updateStatusBarIcon()
+        }
     }
 
     // MARK: - Menu rendering
