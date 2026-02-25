@@ -1,8 +1,31 @@
-# GreenPaste Codebase Review
+# Claude Findings Tracker
 
-> **Tracking instructions:** This file is a checklist. When a finding is addressed,
-> mark it done by adding `- [x]` and wrapping the title in `~~strikethrough~~`.
-> Unresolved items use `- [ ]`.
+> **Tracking instructions**
+> - When a finding is addressed, change `- [ ]` to `- [x]`.
+> - Wrap the finding title in `~~strikethrough~~` when completed.
+> - Keep unresolved items as `- [ ]`.
+
+## Open Findings (Special Review List)
+
+Use this section for final disposition decisions on unresolved findings.
+
+### Do Now
+
+- [ ] **#10: No BLE-level access control — any device can write to characteristics**
+  Suggested disposition: implement BLE abuse guardrails (strict frame limits, fail-fast parsing, and rate limits) while keeping app-layer pairing.
+
+### Accept Risk (Close With Rationale)
+
+- [ ] **#27: `ChunkHeader.encoding` decoded but never validated or used**
+  Suggested disposition: keep for protocol forward compatibility.
+- [ ] **#28: `tx_id` parsed but never used on either platform**
+  Suggested disposition: keep for protocol compliance and future compatibility.
+- [ ] **#29: Metadata `size` and `type` fields ignored on receipt**
+  Suggested disposition: keep current behavior until non-text payload handling is implemented.
+- [ ] **#34: `security-crypto:1.1.0-alpha06` is an alpha dependency**
+  Suggested disposition: keep current dependency until a stable, API-compatible release exists.
+- [ ] **#37: `sha256Hex` duplicated between BLECentralManager and ClipboardMonitor**
+  Suggested disposition: keep as-is; duplication is small and low-risk.
 
 ## Critical / High Severity
 
