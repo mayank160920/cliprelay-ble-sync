@@ -358,18 +358,33 @@ private fun MainCard(
                     )
                 }
             } else {
-                TextButton(
+                val unpairBg by animateColorAsState(
+                    targetValue = if (isConnected) Color(0x1439FF14) else Color(0x0F39FF14),
+                    animationSpec = tween(400),
+                    label = "unpairBg"
+                )
+                val unpairBorder by animateColorAsState(
+                    targetValue = if (isConnected) Color(0x2639FF14) else Color(0x1A39FF14),
+                    animationSpec = tween(400),
+                    label = "unpairBorder"
+                )
+                Button(
                     onClick = onUnpairClick,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, unpairBorder, RoundedCornerShape(28.dp)),
                     shape = RoundedCornerShape(28.dp),
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = Color(0x73000000)
-                    )
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = unpairBg,
+                        contentColor = TextGreen
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp)
                 ) {
                     Text(
                         text = "Unpair",
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(vertical = 4.dp)
                     )
                 }
             }
