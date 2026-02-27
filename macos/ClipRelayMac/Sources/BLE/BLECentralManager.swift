@@ -148,9 +148,15 @@ final class BLECentralManager: NSObject {
         notifyAllState()
 
         // Reset backoff and restart scanning + direct connection attempts.
+        // Stop timers first — the old Timer objects from before sleep may be
+        // stale/invalidated. The start methods guard on `timer == nil`, so
+        // without stopping first they would silently no-op.
         reconnectDelay = 1
         centralManager.stopScan()
         scan()
+        stopConnectionWatchdog()
+        stopKeepaliveTimer()
+        stopScanCycleTimer()
         startConnectionWatchdogIfNeeded()
         startKeepaliveTimer()
         startScanCycleTimer()
