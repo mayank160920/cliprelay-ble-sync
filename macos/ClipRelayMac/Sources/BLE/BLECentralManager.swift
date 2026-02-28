@@ -56,6 +56,10 @@ final class BLECentralManager: NSObject {
 
     private var reconnectDelay: TimeInterval = 1
     private let connectionAttemptTimeout: TimeInterval = 60
+    /// When set, connection attempts are suppressed until this date.
+    /// Used to back off after "maximum connections" errors to let
+    /// CoreBluetooth release leaked connection slots.
+    private var connectionCooldownUntil: Date?
     private var connectionWatchdogTimer: Timer?
     private var keepaliveTimer: Timer?
     private var scanCycleTimer: Timer?
@@ -93,6 +97,12 @@ final class BLECentralManager: NSObject {
         }
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
+            selector: #selector(handleSystemSleep),
+            name: NSWorkspace.willSleepNotification,
+            object: nil
+        )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
             selector: #selector(handleSystemWake),
             name: NSWorkspace.didWakeNotification,
             object: nil
@@ -117,6 +127,33 @@ final class BLECentralManager: NSObject {
         pendingInboundHashByPeer.removeAll()
         assemblerByPeer.removeAll()
         pendingOutboundFrames.removeAll()
+        centralManager.stopScan()
+        stopConnectionWatchdog()
+        stopKeepaliveTimer()
+        stopScanCycleTimer()
+        notifyAllState()
+    }
+
+    @objc private func handleSystemSleep() {
+        bleLog("[BLE] System sleep detected — disconnecting all peripherals and stopping timers")
+        // Proactively disconnect everything before sleep so CoreBluetooth
+        // doesn't hold stale connection handles that leak slots on wake.
+        for peer in connectedPeers.values {
+            centralManager.cancelPeripheralConnection(peer.peripheral)
+        }
+        for id in connectingPeerIDs {
+            if let peripheral = knownPeripherals[id] {
+                centralManager.cancelPeripheralConnection(peripheral)
+            }
+        }
+        connectingPeerIDs.removeAll()
+        connectingSinceByPeerID.removeAll()
+        connectedPeers.removeAll()
+        pendingInboundHashByPeer.removeAll()
+        assemblerByPeer.removeAll()
+        pendingOutboundFrames.removeAll()
+        rssiMissCountByPeerID.removeAll()
+        pendingRSSIProbeByPeerID.removeAll()
         centralManager.stopScan()
         stopConnectionWatchdog()
         stopKeepaliveTimer()
@@ -310,6 +347,12 @@ final class BLECentralManager: NSObject {
         guard !connectingPeerIDs.contains(peripheralID) else { return }
         guard let peripheral = knownPeripherals[peripheralID] else { return }
 
+        // Suppress connection attempts during cooldown (after "max connections" errors).
+        if let cooldownEnd = connectionCooldownUntil {
+            if Date() < cooldownEnd { return }
+            connectionCooldownUntil = nil
+        }
+
         // Only cancel if CoreBluetooth still thinks this peripheral has an
         // active/pending link. Calling cancel on an already-disconnected
         // peripheral can prevent the first connection after pairing from
@@ -322,6 +365,21 @@ final class BLECentralManager: NSObject {
         connectingSinceByPeerID[peripheralID] = Date()
         peripheral.delegate = self
         centralManager.connect(peripheral, options: nil)
+    }
+
+    /// Cancel all pending and active connection requests to release CoreBluetooth
+    /// connection slots. Called when CoreBluetooth reports connection limit reached.
+    private func cancelAllPendingConnections() {
+        for (id, peripheral) in knownPeripherals {
+            if connectingPeerIDs.contains(id) || peripheral.state == .connecting || peripheral.state == .connected {
+                centralManager.cancelPeripheralConnection(peripheral)
+            }
+        }
+        for peer in connectedPeers.values {
+            centralManager.cancelPeripheralConnection(peer.peripheral)
+        }
+        connectingPeerIDs.removeAll()
+        connectingSinceByPeerID.removeAll()
     }
 
     private func scan() {
@@ -625,7 +683,18 @@ extension BLECentralManager: CBCentralManagerDelegate {
             startKeepaliveTimer()
             startScanCycleTimer()
         } else {
-            bleLog("[BLE] BT state not poweredOn — clearing all BLE state")
+            bleLog("[BLE] BT state not poweredOn — cancelling connections and clearing BLE state")
+            // Cancel all pending connections BEFORE clearing state so CoreBluetooth
+            // releases connection slots. Without this, queued connect() calls leak
+            // slots that persist across poweredOff→poweredOn transitions.
+            for peer in connectedPeers.values {
+                centralManager.cancelPeripheralConnection(peer.peripheral)
+            }
+            for id in connectingPeerIDs {
+                if let peripheral = knownPeripherals[id] {
+                    centralManager.cancelPeripheralConnection(peripheral)
+                }
+            }
             // Bluetooth turned off — all peripherals are invalidated by CoreBluetooth.
             // Also clear the forgotten set since the old peripheral UUIDs are no longer valid.
             knownPeripherals.removeAll()
@@ -639,6 +708,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
             pendingOutboundFrames.removeAll()
             rssiMissCountByPeerID.removeAll()
             pendingRSSIProbeByPeerID.removeAll()
+            connectionCooldownUntil = nil
             stopConnectionWatchdog()
             stopKeepaliveTimer()
             stopScanCycleTimer()
@@ -700,6 +770,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         reconnectDelay = 1
+        connectionCooldownUntil = nil
         let peripheralID = peripheral.identifier
         connectingPeerIDs.remove(peripheralID)
         connectingSinceByPeerID.removeValue(forKey: peripheralID)
@@ -745,6 +816,35 @@ extension BLECentralManager: CBCentralManagerDelegate {
         bleLog("[BLE] didFailToConnect: \(peripheral.name ?? "nil") error=\(error?.localizedDescription ?? "nil")")
         connectingPeerIDs.remove(peripheral.identifier)
         connectingSinceByPeerID.removeValue(forKey: peripheral.identifier)
+
+        // Detect CoreBluetooth connection slot exhaustion.
+        // When this happens, cancel ALL pending connections to release leaked slots,
+        // then enter a cooldown period before allowing new connection attempts.
+        let isConnectionLimitError: Bool = {
+            if let cbError = error as? CBError, cbError.code == .connectionLimitReached { return true }
+            // Fallback: match on error description for older macOS where the typed code
+            // may not be available.
+            if let desc = error?.localizedDescription, desc.contains("maximum number of connections") { return true }
+            return false
+        }()
+        if isConnectionLimitError {
+            bleLog("[BLE] *** Connection limit reached — cancelling all pending connections and entering cooldown ***")
+            cancelAllPendingConnections()
+            connectionCooldownUntil = Date().addingTimeInterval(10)
+            // Restart scanning after cooldown so we pick up peripherals fresh.
+            centralManager.stopScan()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                guard let self, self.centralManager.state == .poweredOn else { return }
+                self.connectionCooldownUntil = nil
+                self.reconnectDelay = 1
+                self.scan()
+                for (peripheralID, _) in self.peripheralTokenMap {
+                    self.connectToPairedPeerIfNeeded(peripheralID: peripheralID)
+                }
+            }
+            return
+        }
+
         scheduleReconnect()
     }
 

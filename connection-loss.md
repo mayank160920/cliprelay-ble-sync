@@ -87,7 +87,7 @@ objects appear with the same UUIDs on the next poweredOn transition.
 
 ---
 
-### 3. **[MEDIUM] No `willSleepNotification` handler — no pre-sleep cleanup**
+### 3. **[MEDIUM] [FIXED] No `willSleepNotification` handler — no pre-sleep cleanup**
 
 **File**: `macos/.../BLE/BLECentralManager.swift`
 
@@ -135,7 +135,7 @@ advertiser is cycled.
 
 ---
 
-### 5. **[MEDIUM] No persistent logging on Mac — can't diagnose past failures**
+### 5. **[MEDIUM] [FIXED] No persistent logging on Mac — can't diagnose past failures**
 
 **File**: `macos/.../BLE/BLECentralManager.swift`
 
@@ -184,6 +184,47 @@ This is low priority for a menu bar app but worth considering for reliability.
 
 ---
 
+### 8. **[CRITICAL] [FIXED] CoreBluetooth connection slot leak — permanent "max connections" failure**
+
+**File**: `macos/.../BLE/BLECentralManager.swift`
+
+**Discovery**: Found via `os_log` analysis after deploying fix #5. Every wake
+cycle showed:
+
+```
+didFailToConnect: Pixel 10 Pro XL error=The system has reached the maximum
+number of connections for this client
+```
+
+This repeated hundreds of times per wake cycle, preventing any connection
+recovery.
+
+**Root cause**: When CoreBluetooth state cycles to `poweredOff` during sleep,
+`centralManagerDidUpdateState` clears app-side state (`connectingPeerIDs`,
+`knownPeripherals`) but does NOT call `cancelPeripheralConnection()` for
+peripherals that had `connect()` queued. Those stale connection requests leak
+inside CoreBluetooth's internal connection table.
+
+On wake, `poweredOn` triggers scanning with `allowDuplicates: true`.
+Discoveries fire every ~200ms. Each discovery calls
+`connectToPairedPeerIfNeeded()` → `connect()` → immediate fail
+(`connectionLimitReached`) → `scheduleReconnect()` → next discovery fires
+before backoff completes → `connect()` again. This creates a tight
+connect/fail storm that permanently exhausts CoreBluetooth's connection slots.
+
+**Fix** (three parts):
+1. **Pre-sleep cleanup**: Added `willSleepNotification` handler that cancels
+   all connections before sleep (prevents stale slots).
+2. **Cancel before clearing state**: In `centralManagerDidUpdateState(.poweredOff)`,
+   call `cancelPeripheralConnection()` for all known/connected peripherals
+   BEFORE clearing `knownPeripherals` and `connectedPeers`.
+3. **Connection cooldown**: In `didFailToConnect`, detect
+   `CBError.connectionLimitReached`, cancel ALL pending connections, enter a
+   10-second cooldown, suppress new `connect()` calls during cooldown, then
+   resume cleanly.
+
+---
+
 ## Reproduction Conditions
 
 1. Pair Mac and Android, verify clipboard sync works
@@ -197,12 +238,13 @@ activity (no data transfer to exercise the connection).
 
 ## Summary of Fixes (Priority Order)
 
-| # | Severity | Fix | Effort |
+| # | Severity | Fix | Status |
 |---|----------|-----|--------|
-| 1 | HIGH | Stop/restart all timers in `handleSystemWake()` | Trivial |
-| 2 | HIGH | Preserve `peripheralTokenMap` across BT state transitions | Small |
-| 3 | MEDIUM | Add `willSleepNotification` handler | Small |
-| 4 | MEDIUM | Add GATT server health check on Android | Small |
-| 5 | MEDIUM | Switch Mac logging from `print()` to `os_log` | Medium |
-| 6 | LOW | Use AlarmManager for Android health checks | Small |
-| 7 | LOW | Add CBCentralManager state restoration | Medium |
+| 8 | CRITICAL | Connection slot leak: pre-sleep cleanup + cancel before clear + cooldown | FIXED |
+| 1 | HIGH | Stop/restart all timers in `handleSystemWake()` | FIXED |
+| 2 | HIGH | Preserve `peripheralTokenMap` across BT state transitions | Open |
+| 3 | MEDIUM | Add `willSleepNotification` handler | FIXED |
+| 4 | MEDIUM | Add GATT server health check on Android | Open |
+| 5 | MEDIUM | Switch Mac logging from `print()` to `os_log` | FIXED |
+| 6 | LOW | Use AlarmManager for Android health checks | Open |
+| 7 | LOW | Add CBCentralManager state restoration | Open |
