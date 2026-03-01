@@ -12,7 +12,9 @@ final class StatusBarController {
     private var connectedPeers: [PeerSummary] = []
     private var trustedPeers: [PeerSummary] = []
 
-    private lazy var connectedDot: NSImage = makeStatusDot(color: .systemGreen)
+    private static let brandAqua = NSColor(red: 0, green: 1, blue: 0.835, alpha: 1) // #00FFD5
+
+    private lazy var connectedDot: NSImage = makeStatusDot(color: Self.brandAqua)
     private lazy var disconnectedDot: NSImage = makeStatusDot(color: .tertiaryLabelColor)
 
     private var baseStatusBarImage: NSImage?
@@ -40,9 +42,9 @@ final class StatusBarController {
             return
         }
         if !connectedPeers.isEmpty {
-            let green = base.colorized(with: .systemGreen)
-            green.isTemplate = false
-            button.image = green
+            let aqua = base.colorized(with: Self.brandAqua)
+            aqua.isTemplate = false
+            button.image = aqua
         } else {
             let template = base.copy() as! NSImage
             template.isTemplate = true
