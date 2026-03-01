@@ -47,12 +47,14 @@ class DebugSmokeReceiver : BroadcastReceiver() {
 
             ACTION_CLEAR_PAIRING -> {
                 runCatching {
-                    PairingStore(context).clear()
+                    val unpairStarted = unpairInService(context)
+                    if (!unpairStarted) {
+                        PairingStore(context).clear()
+                    }
                     context.getSharedPreferences(ClipRelayService.PREFS_NAME, Context.MODE_PRIVATE)
                         .edit()
                         .remove(ClipRelayService.KEY_CONNECTED_DEVICE)
                         .apply()
-                    reloadPairingInService(context)
                     DebugSmokeProbe.reset(context)
                 }.onFailure {
                     setResultCode(3)
@@ -90,5 +92,24 @@ class DebugSmokeReceiver : BroadcastReceiver() {
         if (!startedExistingService) {
             ContextCompat.startForegroundService(context, reloadIntent)
         }
+    }
+
+    private fun unpairInService(context: Context): Boolean {
+        val unpairIntent = Intent(context, ClipRelayService::class.java).apply {
+            action = ClipRelayService.ACTION_UNPAIR
+        }
+
+        val startedExistingService = runCatching {
+            context.startService(unpairIntent)
+        }.getOrNull() != null
+
+        if (startedExistingService) {
+            return true
+        }
+
+        return runCatching {
+            ContextCompat.startForegroundService(context, unpairIntent)
+            true
+        }.getOrDefault(false)
     }
 }

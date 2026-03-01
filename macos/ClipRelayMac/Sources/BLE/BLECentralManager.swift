@@ -24,6 +24,24 @@ struct ClipboardAvailableMessage: Codable {
     let tx_id: String
 }
 
+private enum InboundPayloadType {
+    static let text = "text/plain"
+    static let control = "application/x-cliprelay-control"
+}
+
+private enum ControlEvent {
+    static let androidUnpaired = "android_unpaired"
+}
+
+private struct ControlMessage: Codable {
+    let event: String
+}
+
+private struct PendingInboundMetadata {
+    let hash: String
+    let type: String
+}
+
 struct PeerSummary {
     let id: UUID
     let description: String
@@ -75,7 +93,7 @@ final class BLECentralManager: NSObject {
     private var pendingPairingToken: String?
     private var lastInboundHash: String?
     private var lastInboundPeerID: UUID?
-    private var pendingInboundHashByPeer: [UUID: String] = [:]
+    private var pendingInboundMetadataByPeer: [UUID: PendingInboundMetadata] = [:]
     private var assemblerByPeer: [UUID: ChunkAssembler] = [:]
     private var pendingOutboundFrames: [UUID: (peripheral: CBPeripheral, frames: [Data], nextIndex: Int)] = [:]
 
@@ -124,7 +142,7 @@ final class BLECentralManager: NSObject {
         connectingPeerIDs.removeAll()
         connectingSinceByPeerID.removeAll()
         connectedPeers.removeAll()
-        pendingInboundHashByPeer.removeAll()
+        pendingInboundMetadataByPeer.removeAll()
         assemblerByPeer.removeAll()
         pendingOutboundFrames.removeAll()
         centralManager.stopScan()
@@ -149,7 +167,7 @@ final class BLECentralManager: NSObject {
         connectingPeerIDs.removeAll()
         connectingSinceByPeerID.removeAll()
         connectedPeers.removeAll()
-        pendingInboundHashByPeer.removeAll()
+        pendingInboundMetadataByPeer.removeAll()
         assemblerByPeer.removeAll()
         pendingOutboundFrames.removeAll()
         rssiMissCountByPeerID.removeAll()
@@ -185,7 +203,7 @@ final class BLECentralManager: NSObject {
         connectingPeerIDs.removeAll()
         connectingSinceByPeerID.removeAll()
         connectedPeers.removeAll()
-        pendingInboundHashByPeer.removeAll()
+        pendingInboundMetadataByPeer.removeAll()
         assemblerByPeer.removeAll()
         pendingOutboundFrames.removeAll()
         rssiMissCountByPeerID.removeAll()
@@ -226,7 +244,7 @@ final class BLECentralManager: NSObject {
             connectingPeerIDs.remove(id)
             connectingSinceByPeerID.removeValue(forKey: id)
             connectedPeers.removeValue(forKey: id)
-            pendingInboundHashByPeer.removeValue(forKey: id)
+            pendingInboundMetadataByPeer.removeValue(forKey: id)
             assemblerByPeer.removeValue(forKey: id)
             pendingOutboundFrames.removeValue(forKey: id)
             rssiMissCountByPeerID.removeValue(forKey: id)
@@ -248,7 +266,7 @@ final class BLECentralManager: NSObject {
             connectedPeers.removeValue(forKey: id)
             connectingPeerIDs.remove(id)
             connectingSinceByPeerID.removeValue(forKey: id)
-            pendingInboundHashByPeer.removeValue(forKey: id)
+            pendingInboundMetadataByPeer.removeValue(forKey: id)
             assemblerByPeer.removeValue(forKey: id)
             pendingOutboundFrames.removeValue(forKey: id)
             rssiMissCountByPeerID.removeValue(forKey: id)
@@ -629,9 +647,28 @@ final class BLECentralManager: NSObject {
     private func processAvailableMetadata(_ data: Data, for peripheralID: UUID) {
         guard let message = try? JSONDecoder().decode(ClipboardAvailableMessage.self, from: data) else { return }
         if message.hash.isEmpty {
-            pendingInboundHashByPeer.removeValue(forKey: peripheralID)
+            pendingInboundMetadataByPeer.removeValue(forKey: peripheralID)
         } else {
-            pendingInboundHashByPeer[peripheralID] = message.hash
+            pendingInboundMetadataByPeer[peripheralID] = PendingInboundMetadata(hash: message.hash, type: message.type)
+        }
+    }
+
+    private func processControlPayload(_ plaintext: Data, from peripheralID: UUID) {
+        guard let controlMessage = try? JSONDecoder().decode(ControlMessage.self, from: plaintext) else {
+            bleLog("[BLE] Invalid control payload from \(peripheralID)")
+            return
+        }
+
+        guard controlMessage.event == ControlEvent.androidUnpaired else {
+            bleLog("[BLE] Unknown control event '\(controlMessage.event)' from \(peripheralID)")
+            return
+        }
+
+        if let peer = connectedPeers[peripheralID] {
+            bleLog("[BLE] Received Android unpair control from \(peer.displayName) — disconnecting")
+            peripheralTokenMap.removeValue(forKey: peripheralID)
+            knownPeripherals.removeValue(forKey: peripheralID)
+            centralManager.cancelPeripheralConnection(peer.peripheral)
         }
     }
 
@@ -722,7 +759,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
             connectedPeers.removeAll()
             peripheralTokenMap.removeAll()
             forgottenPeripheralIDs.removeAll()
-            pendingInboundHashByPeer.removeAll()
+            pendingInboundMetadataByPeer.removeAll()
             assemblerByPeer.removeAll()
             pendingOutboundFrames.removeAll()
             rssiMissCountByPeerID.removeAll()
@@ -873,7 +910,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
         connectingPeerIDs.remove(peripheralID)
         connectingSinceByPeerID.removeValue(forKey: peripheralID)
         connectedPeers.removeValue(forKey: peripheralID)
-        pendingInboundHashByPeer.removeValue(forKey: peripheralID)
+        pendingInboundMetadataByPeer.removeValue(forKey: peripheralID)
         assemblerByPeer.removeValue(forKey: peripheralID)
         pendingOutboundFrames.removeValue(forKey: peripheralID)
         rssiMissCountByPeerID.removeValue(forKey: peripheralID)
@@ -964,19 +1001,30 @@ extension BLECentralManager: CBPeripheralDelegate {
         guard let assembledData = chunkAssembler.assembleData() else { return }
 
         // Verify hash against metadata — reject if metadata was never received
-        guard let metadataHash = pendingInboundHashByPeer.removeValue(forKey: peripheralID) else {
+        guard let metadata = pendingInboundMetadataByPeer.removeValue(forKey: peripheralID) else {
             bleLog("[BLE] Rejecting assembled data: no metadata hash received for peer \(peripheralID)")
             return
         }
         let assembledHash = sha256Hex(assembledData)
-        guard metadataHash == assembledHash else {
-            bleLog("[BLE] Hash mismatch: expected=\(metadataHash) got=\(assembledHash)")
+        guard metadata.hash == assembledHash else {
+            bleLog("[BLE] Hash mismatch: expected=\(metadata.hash) got=\(assembledHash)")
             return
         }
 
         // Decrypt
         guard let key = encryptionKeyForPeer(peripheralID) else { return }
         guard let plaintext = try? E2ECrypto.open(assembledData, key: key) else { return }
+
+        if metadata.type == InboundPayloadType.control {
+            processControlPayload(plaintext, from: peripheralID)
+            return
+        }
+
+        guard metadata.type == InboundPayloadType.text else {
+            bleLog("[BLE] Ignoring unsupported payload type '\(metadata.type)'")
+            return
+        }
+
         guard let output = String(data: plaintext, encoding: .utf8) else { return }
 
         let outputHash = sha256Hex(Data(output.utf8))

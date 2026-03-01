@@ -35,6 +35,7 @@ class ClipRelayService : Service() {
     companion object {
         const val ACTION_PUSH_TEXT = "com.cliprelay.action.PUSH_TEXT"
         const val ACTION_RELOAD_PAIRING = "com.cliprelay.action.RELOAD_PAIRING"
+        const val ACTION_UNPAIR = "com.cliprelay.action.UNPAIR"
         const val ACTION_CONNECTION_STATE = "com.cliprelay.action.CONNECTION_STATE"
         const val ACTION_QUERY_CONNECTION = "com.cliprelay.action.QUERY_CONNECTION"
         const val ACTION_CLIPBOARD_TRANSFER = "com.cliprelay.action.CLIPBOARD_TRANSFER"
@@ -50,6 +51,9 @@ class ClipRelayService : Service() {
         private const val MAX_CLIPBOARD_BYTES = 102_400
         private const val STALE_CONNECTION_CHECK_INTERVAL_MS = 60_000L
         private const val STALE_CONNECTION_TIMEOUT_SECONDS = 90
+        private const val PAYLOAD_TYPE_TEXT = "text/plain"
+        private const val PAYLOAD_TYPE_CONTROL = "application/x-cliprelay-control"
+        private const val CONTROL_EVENT_ANDROID_UNPAIRED = "android_unpaired"
     }
 
     private lateinit var gattServer: GattServerManager
@@ -140,6 +144,12 @@ class ClipRelayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         loadPairingState()
+
+        if (intent?.action == ACTION_UNPAIR) {
+            handleUnpairRequest()
+            return START_STICKY
+        }
+
         ensureBleComponentsState()
 
         when (intent?.action) {
@@ -317,11 +327,69 @@ class ClipRelayService : Service() {
             return
         }
 
+        val published = publishEncryptedPayloadToMac(
+            plaintext = plaintext,
+            key = key,
+            payloadType = PAYLOAD_TYPE_TEXT
+        )
+        if (!published) {
+            Log.d(TAG, "No subscribers for Android->Mac push")
+        } else {
+            sendClipboardTransferBroadcast(fromMac = false)
+            DebugSmokeProbe.onOutboundClipboardPublished(this, text)
+        }
+    }
+
+    private fun handleUnpairRequest() {
+        encryptionKey?.let { key ->
+            publishAndroidUnpairedControl(key)
+        }
+
+        pairingStore.clear()
+        loadPairingState()
+
+        if (bleStarted) {
+            stopBleComponents(disconnectCentralsFirst = true)
+        } else {
+            sendConnectionBroadcast(false)
+        }
+
+        transferExecutor.execute {
+            inboundStateMachine.resetAll()
+        }
+    }
+
+    private fun publishAndroidUnpairedControl(key: SecretKey) {
+        val controlPayload = JSONObject()
+            .put("event", CONTROL_EVENT_ANDROID_UNPAIRED)
+            .toString()
+            .toByteArray(Charsets.UTF_8)
+        val published = publishEncryptedPayloadToMac(
+            plaintext = controlPayload,
+            key = key,
+            payloadType = PAYLOAD_TYPE_CONTROL
+        )
+        if (published) {
+            Log.d(TAG, "Published Android unpair control event")
+        } else {
+            Log.d(TAG, "No connected Mac central for unpair control event")
+        }
+    }
+
+    private fun publishEncryptedPayloadToMac(
+        plaintext: ByteArray,
+        key: SecretKey,
+        payloadType: String
+    ): Boolean {
+        if (!gattServer.hasConnectedCentral()) {
+            return false
+        }
+
         val encrypted = try {
             E2ECrypto.seal(plaintext, key)
         } catch (e: Exception) {
             Log.e(TAG, "Encryption failed: ${e.message}")
-            return
+            return false
         }
 
         val txId = UUID.randomUUID().toString().lowercase()
@@ -343,18 +411,12 @@ class ClipRelayService : Service() {
         val availablePayload = JSONObject()
             .put("hash", sha256Hex(encrypted))
             .put("size", encrypted.size)
-            .put("type", "text/plain")
+            .put("type", payloadType)
             .put("tx_id", txId)
             .toString()
             .toByteArray(Charsets.UTF_8)
 
-        val published = gattServer.publishClipboardFrames(availablePayload, dataFrames)
-        if (!published) {
-            Log.d(TAG, "No subscribers for Android->Mac push")
-        } else {
-            sendClipboardTransferBroadcast(fromMac = false)
-            DebugSmokeProbe.onOutboundClipboardPublished(this, text)
-        }
+        return gattServer.publishClipboardFrames(availablePayload, dataFrames)
     }
 
     private fun sha256Hex(bytes: ByteArray): String {

@@ -81,11 +81,12 @@ class MainActivity : AppCompatActivity() {
                     scannerLauncher.launch(Intent(this, QrScannerActivity::class.java))
                 },
                 onUnpairClick = {
-                    PairingStore(this).clear()
                     viewModel.onUnpaired()
-                    val reloadIntent = Intent(this, ClipRelayService::class.java)
-                    reloadIntent.action = ClipRelayService.ACTION_RELOAD_PAIRING
-                    startServiceSafely(reloadIntent)
+                    val unpairIntent = Intent(this, ClipRelayService::class.java)
+                    unpairIntent.action = ClipRelayService.ACTION_UNPAIR
+                    if (!startServiceSafely(unpairIntent)) {
+                        PairingStore(this).clear()
+                    }
                 },
                 onBurstShown = {
                     viewModel.onBurstShown()
@@ -119,14 +120,15 @@ class MainActivity : AppCompatActivity() {
         startServiceSafely(Intent(this, ClipRelayService::class.java))
     }
 
-    private fun startServiceSafely(intent: Intent) {
-        if (!BlePermissions.hasRequiredRuntimePermissions(this)) return
+    private fun startServiceSafely(intent: Intent): Boolean {
+        if (!BlePermissions.hasRequiredRuntimePermissions(this)) return false
         val started = runCatching {
             ContextCompat.startForegroundService(this, intent)
         }.isSuccess
         if (!started) {
             Toast.makeText(this, "Could not start ClipRelay service", Toast.LENGTH_SHORT).show()
         }
+        return started
     }
 
     private fun requestRuntimePermissions() {
