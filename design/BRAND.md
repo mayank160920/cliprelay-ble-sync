@@ -69,12 +69,13 @@ The logo is a **clipboard board with clamp** (representing clipboard/paste) comb
 
 ### SVG Variants (in this directory)
 
-| File                    | Size     | Description                                  |
-|-------------------------|----------|----------------------------------------------|
-| `logo-full.svg`         | 120x120  | Full logo, transparent bg, glow filter       |
-| `logo-android-icon.svg` | 120x120  | Circular aqua-gradient bg, black arcs        |
-| `logo-menubar.svg`      | 120x120  | Stroke-only, for macOS menu bar (monochrome) |
-| `logo-share-icon.svg`   | 120x120  | Compact, for Android share sheet at small sz |
+| File                     | Size     | Description                                   |
+|--------------------------|----------|-----------------------------------------------|
+| `logo-full-dark.svg`     | 120x120  | Full logo for dark backgrounds, aqua glow     |
+| `logo-full-light.svg`    | 120x120  | Full logo for light backgrounds, teal + shadow |
+| `logo-android-icon.svg`  | 120x120  | Circular aqua-gradient bg, black arcs         |
+| `logo-menubar.svg`       | 120x120  | Stroke-only, for macOS menu bar (monochrome)  |
+| `logo-share-icon.svg`    | 120x120  | Circular aqua bg, compact for share sheets    |
 
 ### Design Rules
 - **On dark backgrounds**: Use aqua-colored strokes/fills with glow filter
