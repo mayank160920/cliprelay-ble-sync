@@ -62,7 +62,7 @@
     font-weight: 300;
   }
 
-  /* ── Side-by-side dark vs light ── */
+  /* -- Side-by-side dark vs light -- */
   .compare-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -114,7 +114,7 @@
     margin-top: -12px;
   }
 
-  /* ── Icon grid ── */
+  /* -- Icon grid -- */
   .icon-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -181,7 +181,7 @@
     background: #AAA;
   }
 
-  /* ── Share menu sims ── */
+  /* -- Share menu sims -- */
   .share-row-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -259,7 +259,7 @@
   .share-icon.gray-dark { background: #3a3a3e; }
   .share-icon.blue { background: #0A84FF; }
 
-  /* Beam animations (2 arcs only) */
+  /* Beam animations (3 arcs) */
   @keyframes beamPulse1 {
     0%, 100% { opacity: 0.9; transform: translateX(0); }
     50% { opacity: 1; transform: translateX(2px); }
@@ -268,21 +268,38 @@
     0%, 100% { opacity: 0.55; transform: translateX(0); }
     50% { opacity: 0.75; transform: translateX(3px); }
   }
+  @keyframes beamPulse3 {
+    0%, 100% { opacity: 0.3; transform: translateX(0); }
+    50% { opacity: 0.5; transform: translateX(4px); }
+  }
 
   .beam-arc-1 { animation: beamPulse1 2s ease-in-out infinite; }
   .beam-arc-2 { animation: beamPulse2 2s ease-in-out 0.25s infinite; }
+  .beam-arc-3 { animation: beamPulse3 2s ease-in-out 0.5s infinite; }
+
+  @keyframes beamTextShimmer {
+    0%, 100% { opacity: 0.4; }
+    40% { opacity: 0.6; }
+  }
+
+  .beam-text-line {
+    animation: beamTextShimmer 3s ease-in-out infinite;
+  }
+  .beam-text-line:nth-child(2) { animation-delay: 0.4s; }
+  .beam-text-line:nth-child(3) { animation-delay: 0.8s; }
+  .beam-text-line:nth-child(4) { animation-delay: 1.2s; }
 
 </style>
 </head>
 <body>
 
 <h1>ClipRelay — Light Background</h1>
-<p class="subtitle">Beam Simplified — 2 arcs, no text lines, aqua-filled light variant. All variants share canonical geometry.</p>
+<p class="subtitle">Beam Refined — 3 arcs, 4 text lines, aqua-filled light variant. All variants share canonical geometry.</p>
 
 
-<!-- ══════════════════════════════════════════════════ -->
-<!-- SECTION 1: Full Logo — dark vs light variant      -->
-<!-- ══════════════════════════════════════════════════ -->
+<!-- ====================================================== -->
+<!-- SECTION 1: Full Logo — dark vs light variant            -->
+<!-- ====================================================== -->
 <h2 class="section-title">Full Logo</h2>
 <p class="section-note">Dark variant (left) uses dark board + aqua glow. Light variant (right) uses aqua-filled board + teal arcs.</p>
 
@@ -295,15 +312,20 @@
         <defs>
           <linearGradient id="d1BoardGrad" x1="0" y1="0" x2="0.3" y2="1"><stop stop-color="#0A3A34"/><stop offset="1" stop-color="#082A26"/></linearGradient>
           <linearGradient id="d1ArcGrad" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#00FFD5"/><stop offset="1" stop-color="#00DDC0"/></linearGradient>
-          <filter id="d1Glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <filter id="d1Glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
         </defs>
-        <rect x="14" y="26" width="58" height="78" rx="10" fill="url(#d1BoardGrad)" stroke="#00FFD5" stroke-width="1.5" opacity="0.9"/>
-        <rect x="26" y="18" width="34" height="12" rx="5" fill="#082A26" stroke="#00FFD5" stroke-width="1.2"/>
-        <rect x="32" y="14" width="22" height="8" rx="4" fill="#0A3A34" stroke="#00DDC0" stroke-width="1"/>
+        <rect x="14" y="26" width="58" height="78" rx="12" fill="url(#d1BoardGrad)" stroke="#00FFD5" stroke-width="1.5" opacity="0.9"/>
+        <rect x="24" y="18" width="38" height="14" rx="5" fill="#082A26" stroke="#00FFD5" stroke-width="1.2"/>
+        <rect x="30" y="14" width="26" height="8" rx="4" fill="#0A3A34" stroke="#00DDC0" stroke-width="1"/>
         <rect x="39" y="22" width="8" height="3" rx="1.5" fill="#00FFD5" opacity="0.55"/>
+        <rect x="24" y="42" width="38" height="4.5" rx="2.25" fill="#00FFD5" opacity="0.35" class="beam-text-line"/>
+        <rect x="24" y="51" width="27" height="4.5" rx="2.25" fill="#00FFD5" opacity="0.22" class="beam-text-line"/>
+        <rect x="24" y="60" width="33" height="4.5" rx="2.25" fill="#00FFD5" opacity="0.22" class="beam-text-line"/>
+        <rect x="24" y="69" width="20" height="4.5" rx="2.25" fill="#00FFD5" opacity="0.15" class="beam-text-line"/>
         <g filter="url(#d1Glow)">
-          <path d="M78 44 A 24 24 0 0 1 78 82" stroke="url(#d1ArcGrad)" stroke-width="4" stroke-linecap="round" fill="none" class="beam-arc-1"/>
-          <path d="M90 35 A 36 36 0 0 1 90 91" stroke="url(#d1ArcGrad)" stroke-width="3.5" stroke-linecap="round" fill="none" class="beam-arc-2"/>
+          <path d="M80 48 A 20 20 0 0 1 80 78" stroke="url(#d1ArcGrad)" stroke-width="4" stroke-linecap="round" fill="none" class="beam-arc-1"/>
+          <path d="M90 39 A 32 32 0 0 1 90 87" stroke="url(#d1ArcGrad)" stroke-width="3.5" stroke-linecap="round" fill="none" class="beam-arc-2"/>
+          <path d="M100 30 A 44 44 0 0 1 100 96" stroke="url(#d1ArcGrad)" stroke-width="3" stroke-linecap="round" fill="none" class="beam-arc-3"/>
         </g>
       </svg>
     </div>
@@ -318,13 +340,18 @@
           <linearGradient id="l1BoardGrad" x1="0" y1="0" x2="0.3" y2="1"><stop stop-color="#00FFD5"/><stop offset="1" stop-color="#00DDC0"/></linearGradient>
           <filter id="l1Shadow" x="-10%" y="-10%" width="130%" height="130%"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#00796B" flood-opacity="0.18"/></filter>
         </defs>
-        <rect x="14" y="26" width="58" height="78" rx="10" fill="url(#l1BoardGrad)" stroke="#00796B" stroke-width="1.5" filter="url(#l1Shadow)"/>
-        <rect x="26" y="18" width="34" height="12" rx="5" fill="#00DDC0" stroke="#00796B" stroke-width="1.2"/>
-        <rect x="32" y="14" width="22" height="8" rx="4" fill="#00FFD5" stroke="#00796B" stroke-width="1"/>
+        <rect x="14" y="26" width="58" height="78" rx="12" fill="url(#l1BoardGrad)" stroke="#00796B" stroke-width="1.5" filter="url(#l1Shadow)"/>
+        <rect x="24" y="18" width="38" height="14" rx="5" fill="#00DDC0" stroke="#00796B" stroke-width="1.2"/>
+        <rect x="30" y="14" width="26" height="8" rx="4" fill="#00FFD5" stroke="#00796B" stroke-width="1"/>
         <rect x="39" y="22" width="8" height="3" rx="1.5" fill="#00796B" opacity="0.6"/>
+        <rect x="24" y="42" width="38" height="4.5" rx="2.25" fill="#00796B" opacity="0.35" class="beam-text-line"/>
+        <rect x="24" y="51" width="27" height="4.5" rx="2.25" fill="#00796B" opacity="0.22" class="beam-text-line"/>
+        <rect x="24" y="60" width="33" height="4.5" rx="2.25" fill="#00796B" opacity="0.22" class="beam-text-line"/>
+        <rect x="24" y="69" width="20" height="4.5" rx="2.25" fill="#00796B" opacity="0.15" class="beam-text-line"/>
         <g filter="url(#l1Shadow)">
-          <path d="M78 44 A 24 24 0 0 1 78 82" stroke="#00796B" stroke-width="4" stroke-linecap="round" fill="none" class="beam-arc-1"/>
-          <path d="M90 35 A 36 36 0 0 1 90 91" stroke="#00796B" stroke-width="3.5" stroke-linecap="round" fill="none" class="beam-arc-2"/>
+          <path d="M80 48 A 20 20 0 0 1 80 78" stroke="#00796B" stroke-width="4" stroke-linecap="round" fill="none" class="beam-arc-1"/>
+          <path d="M90 39 A 32 32 0 0 1 90 87" stroke="#00796B" stroke-width="3.5" stroke-linecap="round" fill="none" class="beam-arc-2"/>
+          <path d="M100 30 A 44 44 0 0 1 100 96" stroke="#00796B" stroke-width="3" stroke-linecap="round" fill="none" class="beam-arc-3"/>
         </g>
       </svg>
     </div>
@@ -341,15 +368,20 @@
         <defs>
           <linearGradient id="d2BoardGrad" x1="0" y1="0" x2="0.3" y2="1"><stop stop-color="#0A3A34"/><stop offset="1" stop-color="#082A26"/></linearGradient>
           <linearGradient id="d2ArcGrad" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#00FFD5"/><stop offset="1" stop-color="#00DDC0"/></linearGradient>
-          <filter id="d2Glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <filter id="d2Glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
         </defs>
-        <rect x="14" y="26" width="58" height="78" rx="10" fill="url(#d2BoardGrad)" stroke="#00FFD5" stroke-width="1.5" opacity="0.9"/>
-        <rect x="26" y="18" width="34" height="12" rx="5" fill="#082A26" stroke="#00FFD5" stroke-width="1.2"/>
-        <rect x="32" y="14" width="22" height="8" rx="4" fill="#0A3A34" stroke="#00DDC0" stroke-width="1"/>
+        <rect x="14" y="26" width="58" height="78" rx="12" fill="url(#d2BoardGrad)" stroke="#00FFD5" stroke-width="1.5" opacity="0.9"/>
+        <rect x="24" y="18" width="38" height="14" rx="5" fill="#082A26" stroke="#00FFD5" stroke-width="1.2"/>
+        <rect x="30" y="14" width="26" height="8" rx="4" fill="#0A3A34" stroke="#00DDC0" stroke-width="1"/>
         <rect x="39" y="22" width="8" height="3" rx="1.5" fill="#00FFD5" opacity="0.55"/>
+        <rect x="24" y="42" width="38" height="4.5" rx="2.25" fill="#00FFD5" opacity="0.35"/>
+        <rect x="24" y="51" width="27" height="4.5" rx="2.25" fill="#00FFD5" opacity="0.22"/>
+        <rect x="24" y="60" width="33" height="4.5" rx="2.25" fill="#00FFD5" opacity="0.22"/>
+        <rect x="24" y="69" width="20" height="4.5" rx="2.25" fill="#00FFD5" opacity="0.15"/>
         <g filter="url(#d2Glow)">
-          <path d="M78 44 A 24 24 0 0 1 78 82" stroke="url(#d2ArcGrad)" stroke-width="4" stroke-linecap="round" fill="none" class="beam-arc-1"/>
-          <path d="M90 35 A 36 36 0 0 1 90 91" stroke="url(#d2ArcGrad)" stroke-width="3.5" stroke-linecap="round" fill="none" class="beam-arc-2"/>
+          <path d="M80 48 A 20 20 0 0 1 80 78" stroke="url(#d2ArcGrad)" stroke-width="4" stroke-linecap="round" fill="none" class="beam-arc-1"/>
+          <path d="M90 39 A 32 32 0 0 1 90 87" stroke="url(#d2ArcGrad)" stroke-width="3.5" stroke-linecap="round" fill="none" class="beam-arc-2"/>
+          <path d="M100 30 A 44 44 0 0 1 100 96" stroke="url(#d2ArcGrad)" stroke-width="3" stroke-linecap="round" fill="none" class="beam-arc-3"/>
         </g>
       </svg>
     </div>
@@ -364,13 +396,18 @@
           <linearGradient id="l2BoardGrad" x1="0" y1="0" x2="0.3" y2="1"><stop stop-color="#00FFD5"/><stop offset="1" stop-color="#00DDC0"/></linearGradient>
           <filter id="l2Shadow" x="-10%" y="-10%" width="130%" height="130%"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#00796B" flood-opacity="0.18"/></filter>
         </defs>
-        <rect x="14" y="26" width="58" height="78" rx="10" fill="url(#l2BoardGrad)" stroke="#00796B" stroke-width="1.5" filter="url(#l2Shadow)"/>
-        <rect x="26" y="18" width="34" height="12" rx="5" fill="#00DDC0" stroke="#00796B" stroke-width="1.2"/>
-        <rect x="32" y="14" width="22" height="8" rx="4" fill="#00FFD5" stroke="#00796B" stroke-width="1"/>
+        <rect x="14" y="26" width="58" height="78" rx="12" fill="url(#l2BoardGrad)" stroke="#00796B" stroke-width="1.5" filter="url(#l2Shadow)"/>
+        <rect x="24" y="18" width="38" height="14" rx="5" fill="#00DDC0" stroke="#00796B" stroke-width="1.2"/>
+        <rect x="30" y="14" width="26" height="8" rx="4" fill="#00FFD5" stroke="#00796B" stroke-width="1"/>
         <rect x="39" y="22" width="8" height="3" rx="1.5" fill="#00796B" opacity="0.6"/>
+        <rect x="24" y="42" width="38" height="4.5" rx="2.25" fill="#00796B" opacity="0.35"/>
+        <rect x="24" y="51" width="27" height="4.5" rx="2.25" fill="#00796B" opacity="0.22"/>
+        <rect x="24" y="60" width="33" height="4.5" rx="2.25" fill="#00796B" opacity="0.22"/>
+        <rect x="24" y="69" width="20" height="4.5" rx="2.25" fill="#00796B" opacity="0.15"/>
         <g filter="url(#l2Shadow)">
-          <path d="M78 44 A 24 24 0 0 1 78 82" stroke="#00796B" stroke-width="4" stroke-linecap="round" fill="none" class="beam-arc-1"/>
-          <path d="M90 35 A 36 36 0 0 1 90 91" stroke="#00796B" stroke-width="3.5" stroke-linecap="round" fill="none" class="beam-arc-2"/>
+          <path d="M80 48 A 20 20 0 0 1 80 78" stroke="#00796B" stroke-width="4" stroke-linecap="round" fill="none" class="beam-arc-1"/>
+          <path d="M90 39 A 32 32 0 0 1 90 87" stroke="#00796B" stroke-width="3.5" stroke-linecap="round" fill="none" class="beam-arc-2"/>
+          <path d="M100 30 A 44 44 0 0 1 100 96" stroke="#00796B" stroke-width="3" stroke-linecap="round" fill="none" class="beam-arc-3"/>
         </g>
       </svg>
     </div>
@@ -379,9 +416,9 @@
 </div>
 
 
-<!-- ══════════════════════════════════════════════════ -->
-<!-- SECTION 2: All icon variants on light             -->
-<!-- ══════════════════════════════════════════════════ -->
+<!-- ====================================================== -->
+<!-- SECTION 2: All icon variants on light                   -->
+<!-- ====================================================== -->
 <h2 class="section-title">Icon Variants on Light</h2>
 
 <div class="icon-grid">
@@ -391,12 +428,17 @@
     <div class="icon-frame" style="width:120px;height:120px;border-radius:50%;background:linear-gradient(135deg,#00FFD5,#00DDC0);box-shadow:0 4px 20px #00FFD533;">
       <svg width="76" height="76" viewBox="0 0 120 120" fill="none">
         <g transform="translate(22,22) scale(0.633)">
-          <rect x="14" y="26" width="58" height="78" rx="10" fill="rgba(0,25,22,0.55)" stroke="rgba(255,255,255,0.4)" stroke-width="1.5"/>
-          <rect x="26" y="18" width="34" height="12" rx="5" fill="rgba(0,25,22,0.55)" stroke="rgba(255,255,255,0.35)" stroke-width="1.2"/>
-          <rect x="32" y="14" width="22" height="8" rx="4" fill="rgba(0,30,26,0.5)" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+          <rect x="14" y="26" width="58" height="78" rx="12" fill="rgba(0,25,22,0.55)" stroke="rgba(255,255,255,0.4)" stroke-width="1.5"/>
+          <rect x="24" y="18" width="38" height="14" rx="5" fill="rgba(0,25,22,0.55)" stroke="rgba(255,255,255,0.35)" stroke-width="1.2"/>
+          <rect x="30" y="14" width="26" height="8" rx="4" fill="rgba(0,30,26,0.5)" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
           <rect x="39" y="22" width="8" height="3" rx="1.5" fill="rgba(255,255,255,0.45)"/>
-          <path d="M78 44 A 24 24 0 0 1 78 82" stroke="black" stroke-width="4.5" stroke-linecap="round" fill="none" class="beam-arc-1"/>
-          <path d="M90 35 A 36 36 0 0 1 90 91" stroke="black" stroke-width="4" stroke-linecap="round" fill="none" class="beam-arc-2"/>
+          <rect x="24" y="42" width="38" height="4.5" rx="2.25" fill="rgba(255,255,255,0.55)"/>
+          <rect x="24" y="51" width="27" height="4.5" rx="2.25" fill="rgba(255,255,255,0.35)"/>
+          <rect x="24" y="60" width="33" height="4.5" rx="2.25" fill="rgba(255,255,255,0.35)"/>
+          <rect x="24" y="69" width="20" height="4.5" rx="2.25" fill="rgba(255,255,255,0.25)"/>
+          <path d="M80 48 A 20 20 0 0 1 80 78" stroke="black" stroke-width="4.5" stroke-linecap="round" fill="none" class="beam-arc-1"/>
+          <path d="M90 39 A 32 32 0 0 1 90 87" stroke="black" stroke-width="4" stroke-linecap="round" fill="none" class="beam-arc-2"/>
+          <path d="M100 30 A 44 44 0 0 1 100 96" stroke="black" stroke-width="3.5" stroke-linecap="round" fill="none" class="beam-arc-3"/>
         </g>
       </svg>
     </div>
@@ -409,12 +451,17 @@
     <div class="icon-frame" style="width:120px;height:120px;border-radius:50%;background:linear-gradient(135deg,#00FFD5,#00DDC0);box-shadow:0 4px 20px #00FFD533;">
       <svg width="76" height="76" viewBox="0 0 120 120" fill="none">
         <g transform="translate(22,22) scale(0.633)">
-          <rect x="14" y="26" width="58" height="78" rx="10" fill="rgba(0,25,22,0.55)" stroke="rgba(255,255,255,0.4)" stroke-width="1.5"/>
-          <rect x="26" y="18" width="34" height="12" rx="5" fill="rgba(0,25,22,0.55)" stroke="rgba(255,255,255,0.35)" stroke-width="1.2"/>
-          <rect x="32" y="14" width="22" height="8" rx="4" fill="rgba(0,30,26,0.5)" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+          <rect x="14" y="26" width="58" height="78" rx="12" fill="rgba(0,25,22,0.55)" stroke="rgba(255,255,255,0.4)" stroke-width="1.5"/>
+          <rect x="24" y="18" width="38" height="14" rx="5" fill="rgba(0,25,22,0.55)" stroke="rgba(255,255,255,0.35)" stroke-width="1.2"/>
+          <rect x="30" y="14" width="26" height="8" rx="4" fill="rgba(0,30,26,0.5)" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
           <rect x="39" y="22" width="8" height="3" rx="1.5" fill="rgba(255,255,255,0.45)"/>
-          <path d="M78 44 A 24 24 0 0 1 78 82" stroke="black" stroke-width="6" stroke-linecap="round" fill="none"/>
-          <path d="M90 35 A 36 36 0 0 1 90 91" stroke="black" stroke-width="5.5" stroke-linecap="round" fill="none"/>
+          <rect x="24" y="42" width="38" height="5.5" rx="2.75" fill="rgba(255,255,255,0.7)"/>
+          <rect x="24" y="52" width="27" height="5.5" rx="2.75" fill="rgba(255,255,255,0.5)"/>
+          <rect x="24" y="62" width="33" height="5.5" rx="2.75" fill="rgba(255,255,255,0.5)"/>
+          <rect x="24" y="72" width="20" height="5.5" rx="2.75" fill="rgba(255,255,255,0.35)"/>
+          <path d="M80 48 A 20 20 0 0 1 80 78" stroke="black" stroke-width="6" stroke-linecap="round" fill="none"/>
+          <path d="M90 39 A 32 32 0 0 1 90 87" stroke="black" stroke-width="5.5" stroke-linecap="round" fill="none"/>
+          <path d="M100 30 A 44 44 0 0 1 100 96" stroke="black" stroke-width="5" stroke-linecap="round" fill="none"/>
         </g>
       </svg>
     </div>
@@ -427,12 +474,15 @@
     <div class="icon-frame menubar-light">
       <div class="menubar-dot"></div>
       <svg width="20" height="18" viewBox="0 0 120 120" fill="none">
-        <rect x="14" y="26" width="58" height="78" rx="10" fill="none" stroke="#00897B" stroke-width="6"/>
-        <rect x="26" y="18" width="34" height="12" rx="5" fill="none" stroke="#00897B" stroke-width="5"/>
-        <rect x="32" y="14" width="22" height="8" rx="4" fill="none" stroke="#00897B" stroke-width="4"/>
+        <rect x="14" y="26" width="58" height="78" rx="12" fill="none" stroke="#00897B" stroke-width="6"/>
+        <rect x="24" y="18" width="38" height="14" rx="5" fill="none" stroke="#00897B" stroke-width="5"/>
+        <rect x="30" y="14" width="26" height="8" rx="4" fill="none" stroke="#00897B" stroke-width="4"/>
         <rect x="39" y="22" width="8" height="3" rx="1.5" fill="#00897B" opacity="0.75"/>
-        <path d="M78 44 A 24 24 0 0 1 78 82" stroke="#00897B" stroke-width="5" stroke-linecap="round" fill="none" class="beam-arc-1"/>
-        <path d="M90 35 A 36 36 0 0 1 90 91" stroke="#00897B" stroke-width="4.5" stroke-linecap="round" fill="none" class="beam-arc-2"/>
+        <rect x="24" y="44" width="30" height="4" rx="2" fill="#00897B" opacity="0.65"/>
+        <rect x="24" y="52" width="22" height="4" rx="2" fill="#00897B" opacity="0.45"/>
+        <rect x="24" y="60" width="26" height="4" rx="2" fill="#00897B" opacity="0.35"/>
+        <path d="M80 48 A 20 20 0 0 1 80 78" stroke="#00897B" stroke-width="5" stroke-linecap="round" fill="none" class="beam-arc-1"/>
+        <path d="M90 39 A 32 32 0 0 1 90 87" stroke="#00897B" stroke-width="4.5" stroke-linecap="round" fill="none" class="beam-arc-2"/>
       </svg>
       <div class="menubar-dot"></div>
       <div class="menubar-dot"></div>
@@ -446,12 +496,15 @@
     <div class="icon-frame" style="background:linear-gradient(180deg,#3a3a3c,#2c2c2e);border-radius:8px;width:160px;height:40px;flex-direction:row;gap:16px;padding:0 12px;">
       <div class="menubar-dot" style="background:#666;"></div>
       <svg width="20" height="18" viewBox="0 0 120 120" fill="none">
-        <rect x="14" y="26" width="58" height="78" rx="10" fill="none" stroke="#00FFD5" stroke-width="6"/>
-        <rect x="26" y="18" width="34" height="12" rx="5" fill="none" stroke="#00FFD5" stroke-width="5"/>
-        <rect x="32" y="14" width="22" height="8" rx="4" fill="none" stroke="#00FFD5" stroke-width="4"/>
+        <rect x="14" y="26" width="58" height="78" rx="12" fill="none" stroke="#00FFD5" stroke-width="6"/>
+        <rect x="24" y="18" width="38" height="14" rx="5" fill="none" stroke="#00FFD5" stroke-width="5"/>
+        <rect x="30" y="14" width="26" height="8" rx="4" fill="none" stroke="#00FFD5" stroke-width="4"/>
         <rect x="39" y="22" width="8" height="3" rx="1.5" fill="#00FFD5" opacity="0.75"/>
-        <path d="M78 44 A 24 24 0 0 1 78 82" stroke="#00FFD5" stroke-width="5" stroke-linecap="round" fill="none" class="beam-arc-1"/>
-        <path d="M90 35 A 36 36 0 0 1 90 91" stroke="#00FFD5" stroke-width="4.5" stroke-linecap="round" fill="none" class="beam-arc-2"/>
+        <rect x="24" y="44" width="30" height="4" rx="2" fill="#00FFD5" opacity="0.65"/>
+        <rect x="24" y="52" width="22" height="4" rx="2" fill="#00FFD5" opacity="0.45"/>
+        <rect x="24" y="60" width="26" height="4" rx="2" fill="#00FFD5" opacity="0.35"/>
+        <path d="M80 48 A 20 20 0 0 1 80 78" stroke="#00FFD5" stroke-width="5" stroke-linecap="round" fill="none" class="beam-arc-1"/>
+        <path d="M90 39 A 32 32 0 0 1 90 87" stroke="#00FFD5" stroke-width="4.5" stroke-linecap="round" fill="none" class="beam-arc-2"/>
       </svg>
       <div class="menubar-dot" style="background:#666;"></div>
       <div class="menubar-dot" style="background:#666;"></div>
@@ -461,9 +514,9 @@
 </div>
 
 
-<!-- ══════════════════════════════════════════════════ -->
-<!-- SECTION 3: Share menu — light vs dark OS          -->
-<!-- ══════════════════════════════════════════════════ -->
+<!-- ====================================================== -->
+<!-- SECTION 3: Share menu — light vs dark OS                -->
+<!-- ====================================================== -->
 <h2 class="section-title">Share Menu Context</h2>
 
 <div class="share-row-grid">
@@ -477,12 +530,16 @@
         <div class="share-icon" style="background:linear-gradient(135deg,#00FFD5,#00DDC0);border-radius:50%;">
           <svg width="16" height="16" viewBox="0 0 120 120" fill="none">
             <g transform="translate(22,22) scale(0.633)">
-              <rect x="14" y="26" width="58" height="78" rx="10" fill="rgba(0,25,22,0.55)"/>
-              <rect x="26" y="18" width="34" height="12" rx="5" fill="rgba(0,25,22,0.55)"/>
-              <rect x="32" y="14" width="22" height="8" rx="4" fill="rgba(0,30,26,0.5)"/>
+              <rect x="14" y="26" width="58" height="78" rx="12" fill="rgba(0,25,22,0.55)"/>
+              <rect x="24" y="18" width="38" height="14" rx="5" fill="rgba(0,25,22,0.55)"/>
+              <rect x="30" y="14" width="26" height="8" rx="4" fill="rgba(0,30,26,0.5)"/>
               <rect x="39" y="22" width="8" height="3" rx="1.5" fill="rgba(255,255,255,0.45)"/>
-              <path d="M78 44 A 24 24 0 0 1 78 82" stroke="black" stroke-width="6" stroke-linecap="round" fill="none"/>
-              <path d="M90 35 A 36 36 0 0 1 90 91" stroke="black" stroke-width="5.5" stroke-linecap="round" fill="none"/>
+              <rect x="24" y="42" width="38" height="5.5" rx="2.75" fill="rgba(255,255,255,0.7)"/>
+              <rect x="24" y="52" width="27" height="5.5" rx="2.75" fill="rgba(255,255,255,0.5)"/>
+              <rect x="24" y="62" width="33" height="5.5" rx="2.75" fill="rgba(255,255,255,0.5)"/>
+              <path d="M80 48 A 20 20 0 0 1 80 78" stroke="black" stroke-width="6" stroke-linecap="round" fill="none"/>
+              <path d="M90 39 A 32 32 0 0 1 90 87" stroke="black" stroke-width="5.5" stroke-linecap="round" fill="none"/>
+              <path d="M100 30 A 44 44 0 0 1 100 96" stroke="black" stroke-width="5" stroke-linecap="round" fill="none"/>
             </g>
           </svg>
         </div>
@@ -503,12 +560,16 @@
         <div class="share-icon" style="background:linear-gradient(135deg,#00FFD5,#00DDC0);border-radius:50%;">
           <svg width="16" height="16" viewBox="0 0 120 120" fill="none">
             <g transform="translate(22,22) scale(0.633)">
-              <rect x="14" y="26" width="58" height="78" rx="10" fill="rgba(0,25,22,0.55)"/>
-              <rect x="26" y="18" width="34" height="12" rx="5" fill="rgba(0,25,22,0.55)"/>
-              <rect x="32" y="14" width="22" height="8" rx="4" fill="rgba(0,30,26,0.5)"/>
+              <rect x="14" y="26" width="58" height="78" rx="12" fill="rgba(0,25,22,0.55)"/>
+              <rect x="24" y="18" width="38" height="14" rx="5" fill="rgba(0,25,22,0.55)"/>
+              <rect x="30" y="14" width="26" height="8" rx="4" fill="rgba(0,30,26,0.5)"/>
               <rect x="39" y="22" width="8" height="3" rx="1.5" fill="rgba(255,255,255,0.45)"/>
-              <path d="M78 44 A 24 24 0 0 1 78 82" stroke="black" stroke-width="6" stroke-linecap="round" fill="none"/>
-              <path d="M90 35 A 36 36 0 0 1 90 91" stroke="black" stroke-width="5.5" stroke-linecap="round" fill="none"/>
+              <rect x="24" y="42" width="38" height="5.5" rx="2.75" fill="rgba(255,255,255,0.7)"/>
+              <rect x="24" y="52" width="27" height="5.5" rx="2.75" fill="rgba(255,255,255,0.5)"/>
+              <rect x="24" y="62" width="33" height="5.5" rx="2.75" fill="rgba(255,255,255,0.5)"/>
+              <path d="M80 48 A 20 20 0 0 1 80 78" stroke="black" stroke-width="6" stroke-linecap="round" fill="none"/>
+              <path d="M90 39 A 32 32 0 0 1 90 87" stroke="black" stroke-width="5.5" stroke-linecap="round" fill="none"/>
+              <path d="M100 30 A 44 44 0 0 1 100 96" stroke="black" stroke-width="5" stroke-linecap="round" fill="none"/>
             </g>
           </svg>
         </div>
