@@ -180,7 +180,7 @@ private fun StatusChip(state: AppState) {
             bg = Color(0x1400FFD5),
             dot = Color(0xFFBDBDBD),
             text = Teal,
-            label = "Waiting for Mac"
+            label = "Searching for Mac"
         )
         is AppState.Connected -> ChipStyle(
             bg = Color(0x1A00FFD5),
