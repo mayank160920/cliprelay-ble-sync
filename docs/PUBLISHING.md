@@ -23,6 +23,28 @@ Mac App Store is deferred to a later phase. Pricing is free for now; Android may
 - [ ] Update `build-all.sh` to support `--release` flag producing a signed AAB (Android App Bundle, required by Play Store)
 - [ ] Verify the release build installs and runs correctly on a real device
 
+#### Quick release checklist (per version)
+1. Bump Android `versionCode` and `versionName` in `android/app/build.gradle.kts`
+2. Ensure `android/keystore.properties` exists (copy `android/keystore.properties.example` and fill secrets locally)
+   - Optional: use 1Password CLI instead of local file by exporting these env vars:
+     - `CLIPRELAY_STORE_FILE`
+     - `CLIPRELAY_STORE_PASSWORD`
+     - `CLIPRELAY_KEY_ALIAS`
+     - `CLIPRELAY_KEY_PASSWORD`
+   - Example:
+
+```bash
+op run --env-file .env.play -- ./scripts/test-all.sh && op run --env-file .env.play -- ./scripts/build-all.sh --android-only --release
+```
+
+3. Run one command from repo root:
+
+```bash
+./scripts/test-all.sh && ./scripts/build-all.sh --android-only --release
+```
+
+4. Upload `dist/cliprelay-release.aab` to Play Console (Internal testing first)
+
 ### 1.3 Store Listing Assets
 - [ ] App icon: 512x512 PNG (high-res, no transparency)
 - [ ] Feature graphic: 1024x500 PNG

@@ -1,7 +1,44 @@
+import org.gradle.api.GradleException
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+}
+
+fun signingValue(propertyKey: String, envKey: String): String? {
+    val value = keystoreProperties.getProperty(propertyKey) ?: System.getenv(envKey)
+    return value?.trim()?.takeIf { it.isNotEmpty() }
+}
+
+val releaseStoreFile = signingValue("storeFile", "CLIPRELAY_STORE_FILE")
+val releaseStorePassword = signingValue("storePassword", "CLIPRELAY_STORE_PASSWORD")
+val releaseKeyAlias = signingValue("keyAlias", "CLIPRELAY_KEY_ALIAS")
+val releaseKeyPassword = signingValue("keyPassword", "CLIPRELAY_KEY_PASSWORD")
+
+val releaseSigningValues = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+)
+
+val releaseSigningConfigured = releaseSigningValues.all { it != null }
+val releaseSigningPartiallyConfigured = releaseSigningValues.any { it != null } && !releaseSigningConfigured
+
+if (releaseSigningPartiallyConfigured) {
+    throw GradleException(
+        "Incomplete Android release signing configuration. " +
+            "Provide all values in android/keystore.properties (storeFile, storePassword, keyAlias, keyPassword) " +
+            "or via CLIPRELAY_STORE_FILE, CLIPRELAY_STORE_PASSWORD, CLIPRELAY_KEY_ALIAS, CLIPRELAY_KEY_PASSWORD."
+    )
 }
 
 android {
@@ -16,6 +53,17 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword!!
+                keyAlias = releaseKeyAlias!!
+                keyPassword = releaseKeyPassword!!
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -23,6 +71,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -39,6 +91,20 @@ android {
         compose = true
     }
 
+}
+
+gradle.taskGraph.whenReady {
+    val releaseTaskRequested = allTasks.any { task ->
+        task.project == project && task.name.contains("Release", ignoreCase = true)
+    }
+
+    if (releaseTaskRequested && !releaseSigningConfigured) {
+        throw GradleException(
+            "Android release signing is not configured. " +
+                "Create android/keystore.properties (storeFile, storePassword, keyAlias, keyPassword) " +
+                "or set CLIPRELAY_STORE_FILE, CLIPRELAY_STORE_PASSWORD, CLIPRELAY_KEY_ALIAS, CLIPRELAY_KEY_PASSWORD."
+        )
+    }
 }
 
 dependencies {

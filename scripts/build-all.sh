@@ -8,16 +8,18 @@ ANDROID_PROJECT_DIR="$ROOT_DIR/android"
 
 BUILD_MAC=true
 BUILD_ANDROID=true
+ANDROID_RELEASE=false
 
 usage() {
   cat <<'EOF'
 Usage: ./scripts/build-all.sh [options]
 
-Builds the macOS app bundle and Android APK.
+Builds the macOS app bundle and Android app artifacts.
 
 Options:
   --mac-only       Build only macOS app
-  --android-only   Build only Android APK
+  --android-only   Build only Android artifacts
+  --release        Build Android release AAB/APK instead of debug APK
   -h, --help       Show this help message
 EOF
 }
@@ -30,6 +32,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --android-only)
       BUILD_MAC=false
+      shift
+      ;;
+    --release)
+      ANDROID_RELEASE=true
       shift
       ;;
     -h|--help)
@@ -132,20 +138,46 @@ build_android() {
     exit 1
   fi
 
-  echo "==> Building Android APK"
-  (
-    cd "$ANDROID_PROJECT_DIR"
-    ./gradlew assembleDebug
-  )
+  if [[ "$ANDROID_RELEASE" == true ]]; then
+    echo "==> Building Android release AAB/APK"
+    (
+      cd "$ANDROID_PROJECT_DIR"
+      ./gradlew clean bundleRelease assembleRelease
+    )
 
-  local apk_path="$ANDROID_PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
-  if [[ ! -f "$apk_path" ]]; then
-    echo "APK not found at $apk_path" >&2
-    exit 1
+    local aab_path="$ANDROID_PROJECT_DIR/app/build/outputs/bundle/release/app-release.aab"
+    local release_apk_path="$ANDROID_PROJECT_DIR/app/build/outputs/apk/release/app-release.apk"
+
+    if [[ ! -f "$aab_path" ]]; then
+      echo "AAB not found at $aab_path" >&2
+      exit 1
+    fi
+
+    if [[ ! -f "$release_apk_path" ]]; then
+      echo "Release APK not found at $release_apk_path" >&2
+      exit 1
+    fi
+
+    cp "$aab_path" "$DIST_DIR/cliprelay-release.aab"
+    cp "$release_apk_path" "$DIST_DIR/cliprelay-release.apk"
+    echo "Android release AAB copied to: $DIST_DIR/cliprelay-release.aab"
+    echo "Android release APK copied to: $DIST_DIR/cliprelay-release.apk"
+  else
+    echo "==> Building Android debug APK"
+    (
+      cd "$ANDROID_PROJECT_DIR"
+      ./gradlew assembleDebug
+    )
+
+    local apk_path="$ANDROID_PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+    if [[ ! -f "$apk_path" ]]; then
+      echo "APK not found at $apk_path" >&2
+      exit 1
+    fi
+
+    cp "$apk_path" "$DIST_DIR/cliprelay-debug.apk"
+    echo "Android APK copied to: $DIST_DIR/cliprelay-debug.apk"
   fi
-
-  cp "$apk_path" "$DIST_DIR/cliprelay-debug.apk"
-  echo "Android APK copied to: $DIST_DIR/cliprelay-debug.apk"
 }
 
 if [[ "$BUILD_MAC" == true ]]; then
