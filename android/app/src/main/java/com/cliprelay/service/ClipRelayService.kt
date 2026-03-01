@@ -152,14 +152,14 @@ class ClipRelayService : Service() {
             }
             ACTION_RELOAD_PAIRING -> {
                 loadPairingState()
-                // If token was cleared (unpair), disconnect all centrals so Mac
-                // immediately sees the disconnection instead of staying green.
+                // If token was cleared (unpair), restart the entire BLE stack.
+                // server.close() is the only reliable way to tear down all
+                // central connections — cancelConnection() is not enough.
                 if (encryptionKey == null && bleStarted) {
-                    gattServer.disconnectAllCentrals()
-                    gattCallback.clearConnectedDevices()
+                    stopBleComponents()
                     sendConnectionBroadcast(false)
-                }
-                if (BlePermissions.hasRequiredRuntimePermissions(this)) {
+                    ensureBleComponentsState()
+                } else if (BlePermissions.hasRequiredRuntimePermissions(this)) {
                     if (bleStarted) {
                         advertiser.restart()
                     } else {
