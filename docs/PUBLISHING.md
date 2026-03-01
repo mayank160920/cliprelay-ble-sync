@@ -45,6 +45,29 @@ op run --env-file .env.play -- ./scripts/test-all.sh && op run --env-file .env.p
 
 4. Upload `dist/cliprelay-release.aab` to Play Console (Internal testing first)
 
+#### Optional CLI publishing (Gradle Play Publisher)
+1. In Play Console, go to `Setup` → `API access` and link a Google Cloud project.
+2. Create a Google Cloud service account and grant it Play Console access (Release manager or higher).
+3. Download the service account JSON key to `android/play-service-account.json` (local only, never commit).
+4. Create `android/play.properties` from `android/play.properties.example`:
+
+```properties
+serviceAccountCredentials=play-service-account.json
+track=internal
+```
+
+5. Publish from repo root:
+
+```bash
+op run --env-file .env.play -- ./scripts/publish-android.sh --track internal
+```
+
+For production rollout after internal validation:
+
+```bash
+op run --env-file .env.play -- ./scripts/publish-android.sh --track production
+```
+
 ### 1.3 Store Listing Assets
 - [ ] App icon: 512x512 PNG (high-res, no transparency)
 - [ ] Feature graphic: 1024x500 PNG

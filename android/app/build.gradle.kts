@@ -5,6 +5,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.github.triplet.play")
 }
 
 val keystoreProperties = Properties()
@@ -40,6 +41,20 @@ if (releaseSigningPartiallyConfigured) {
             "or via CLIPRELAY_STORE_FILE, CLIPRELAY_STORE_PASSWORD, CLIPRELAY_KEY_ALIAS, CLIPRELAY_KEY_PASSWORD."
     )
 }
+
+val playProperties = Properties()
+val playPropertiesFile = rootProject.file("play.properties")
+if (playPropertiesFile.exists()) {
+    playPropertiesFile.inputStream().use { playProperties.load(it) }
+}
+
+fun playValue(propertyKey: String, envKey: String): String? {
+    val value = playProperties.getProperty(propertyKey) ?: System.getenv(envKey)
+    return value?.trim()?.takeIf { it.isNotEmpty() }
+}
+
+val playServiceAccountFile = playValue("serviceAccountCredentials", "PLAY_SERVICE_ACCOUNT_JSON")
+val playTrack = playValue("track", "PLAY_TRACK") ?: "internal"
 
 android {
     namespace = "com.cliprelay"
@@ -93,9 +108,25 @@ android {
 
 }
 
+play {
+    defaultToAppBundles.set(true)
+    track.set(playTrack)
+
+    if (playServiceAccountFile != null) {
+        serviceAccountCredentials.set(rootProject.file(playServiceAccountFile))
+    }
+}
+
 gradle.taskGraph.whenReady {
     val releaseTaskRequested = allTasks.any { task ->
         task.project == project && task.name.contains("Release", ignoreCase = true)
+    }
+
+    val playPublishTaskRequested = allTasks.any { task ->
+        task.project == project && (
+            task.name.contains("publish", ignoreCase = true) ||
+                task.name.contains("promote", ignoreCase = true)
+            )
     }
 
     if (releaseTaskRequested && !releaseSigningConfigured) {
@@ -104,6 +135,23 @@ gradle.taskGraph.whenReady {
                 "Create android/keystore.properties (storeFile, storePassword, keyAlias, keyPassword) " +
                 "or set CLIPRELAY_STORE_FILE, CLIPRELAY_STORE_PASSWORD, CLIPRELAY_KEY_ALIAS, CLIPRELAY_KEY_PASSWORD."
         )
+    }
+
+    if (playPublishTaskRequested) {
+        if (playServiceAccountFile == null) {
+            throw GradleException(
+                "Google Play publishing credentials are not configured. " +
+                    "Create android/play.properties with serviceAccountCredentials=<path-to-json> " +
+                    "or set PLAY_SERVICE_ACCOUNT_JSON."
+            )
+        }
+
+        val credentialsFile = rootProject.file(playServiceAccountFile)
+        if (!credentialsFile.exists()) {
+            throw GradleException(
+                "Google Play service account file not found at ${credentialsFile.path}."
+            )
+        }
     }
 }
 

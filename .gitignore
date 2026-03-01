@@ -12,6 +12,9 @@ DerivedData/
 *.swp
 local.properties
 android/keystore.properties
+android/play.properties
+android/*play-service-account*.json
+android/*service-account*.json
 *.keystore
 *.jks
 dist/
