@@ -2,6 +2,10 @@ package com.cliprelay.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -42,6 +46,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -49,13 +55,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 
-// ─── Color constants ─────────────────────────────────────────────────────────
-private val NeonAqua = Color(0xFF00FFD5)
-private val DarkTeal = Color(0xFF00796B)
-private val TitleTeal = Color(0xFF00695C)
-private val TextTeal = Color(0xFF00897B)
-private val IconTeal = Color(0xFF009688)
-
+// ─── UI-specific background colors ───────────────────────────────────────────
 private val BgTopUnpaired = Color(0xFFE8F5F3)
 private val BgTopConnected = Color(0xFFD6F5EF)
 private val BgBottomUnpaired = Color(0xFFF0F0F0)
@@ -172,13 +172,13 @@ private fun StatusChip(state: AppState) {
         is AppState.Searching -> ChipStyle(
             bg = Color(0x1400FFD5),
             dot = Color(0xFFBDBDBD),
-            text = TextTeal,
+            text = Teal,
             label = "Waiting for Mac"
         )
         is AppState.Connected -> ChipStyle(
             bg = Color(0x1A00FFD5),
-            dot = NeonAqua,
-            text = TextTeal,
+            dot = Aqua,
+            text = Teal,
             label = "Connected"
         )
     }
@@ -286,13 +286,13 @@ private fun MainCard(
             )
             .padding(start = 24.dp, end = 24.dp, top = 36.dp, bottom = 28.dp)
     ) {
-        Column {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
             // Title
             Text(
                 text = "ClipRelay",
                 fontSize = 34.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (isPaired) Color(0xFF00796B) else TitleTeal,
+                color = Teal,
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center
             )
@@ -300,7 +300,7 @@ private fun MainCard(
             Text(
                 text = "Clipboard sync",
                 fontSize = 15.sp,
-                color = if (isPaired) Color(0xFF00796B).copy(alpha = 0.45f) else Color(0x66000000),
+                color = if (isPaired) Teal.copy(alpha = 0.45f) else Color(0x66000000),
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center
             )
@@ -347,7 +347,7 @@ private fun MainCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(28.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = DarkTeal
+                        containerColor = Teal
                     )
                 ) {
                     Text(
@@ -376,7 +376,7 @@ private fun MainCard(
                     shape = RoundedCornerShape(28.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = unpairBg,
-                        contentColor = TextTeal
+                        contentColor = Teal
                     ),
                     elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp)
                 ) {
@@ -410,7 +410,7 @@ private fun DeviceNode(
         label = "iconBg"
     )
     val iconTint by animateColorAsState(
-        targetValue = if (isActive) IconTeal else Color(0x40000000),
+        targetValue = if (isActive) Teal else Color(0x40000000),
         animationSpec = tween(400),
         label = "iconTint"
     )
@@ -520,6 +520,54 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMacIcon(tint: C
         size = Size(w * 0.40f, h * 0.04f),
         cornerRadius = CornerRadius(1f.dp.toPx())
     )
+}
+
+// ─── Logo Icon ──────────────────────────────────────────────────────────────
+@Composable
+private fun LogoIcon(modifier: Modifier = Modifier, tint: Color = Aqua) {
+    val transition = rememberInfiniteTransition(label = "logoPulse")
+    val arc1Alpha by transition.animateFloat(
+        initialValue = 0.85f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(2000), RepeatMode.Reverse),
+        label = "arc1"
+    )
+    val arc2Alpha by transition.animateFloat(
+        initialValue = 0.50f, targetValue = 0.70f,
+        animationSpec = infiniteRepeatable(tween(2000, delayMillis = 250), RepeatMode.Reverse),
+        label = "arc2"
+    )
+
+    Canvas(modifier = modifier) {
+        val s = size.minDimension
+        fun v(n: Float) = n / 120f * s
+
+        // Board body
+        drawRoundRect(tint.copy(alpha = 0.12f), Offset(v(14f), v(26f)), Size(v(58f), v(78f)), CornerRadius(v(10f)))
+        drawRoundRect(tint, Offset(v(14f), v(26f)), Size(v(58f), v(78f)),
+            CornerRadius(v(10f)), style = Stroke(v(2f)))
+
+        // Clamp base
+        drawRoundRect(tint.copy(alpha = 0.12f), Offset(v(26f), v(18f)), Size(v(34f), v(12f)), CornerRadius(v(5f)))
+        drawRoundRect(tint, Offset(v(26f), v(18f)), Size(v(34f), v(12f)),
+            CornerRadius(v(5f)), style = Stroke(v(1.5f)))
+
+        // Clamp top
+        drawRoundRect(tint.copy(alpha = 0.12f), Offset(v(32f), v(14f)), Size(v(22f), v(8f)), CornerRadius(v(4f)))
+        drawRoundRect(tint.copy(alpha = 0.7f), Offset(v(32f), v(14f)), Size(v(22f), v(8f)),
+            CornerRadius(v(4f)), style = Stroke(v(1.2f)))
+
+        // Rivet
+        drawRoundRect(tint.copy(alpha = 0.5f), Offset(v(39f), v(22f)), Size(v(8f), v(3f)),
+            CornerRadius(v(1.5f)))
+
+        // Beam arcs (2 arcs, canonical radii 24 and 36)
+        drawArc(tint.copy(alpha = arc1Alpha), startAngle = -48.6f, sweepAngle = 97.2f,
+            useCenter = false, topLeft = Offset(v(54f), v(39f)), size = Size(v(48f), v(48f)),
+            style = Stroke(v(4f), cap = StrokeCap.Round))
+        drawArc(tint.copy(alpha = arc2Alpha), startAngle = -48.6f, sweepAngle = 97.2f,
+            useCenter = false, topLeft = Offset(v(54f), v(27f)), size = Size(v(72f), v(72f)),
+            style = Stroke(v(3.5f), cap = StrokeCap.Round))
+    }
 }
 
 // ─── Footer ──────────────────────────────────────────────────────────────────

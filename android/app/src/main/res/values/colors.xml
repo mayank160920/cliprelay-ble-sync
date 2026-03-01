@@ -2,12 +2,9 @@
 <resources>
     <color name="ic_launcher_background">#00FFD5</color>
 
-    <!-- Aqua accent -->
-    <color name="aqua_neon">#00FFD5</color>
-    <color name="teal_dark">#00796B</color>
-    <color name="teal_title">#00695C</color>
-    <color name="teal_text">#00897B</color>
-    <color name="teal_icon">#009688</color>
+    <!-- Brand tokens -->
+    <color name="aqua">#00FFD5</color>
+    <color name="teal">#00796B</color>
 
     <!-- Backgrounds -->
     <color name="bg_top_unpaired">#E8F5F3</color>
