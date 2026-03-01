@@ -341,6 +341,7 @@ class ClipRelayService : Service() {
     }
 
     private fun handleUnpairRequest() {
+        val hadConnection = bleStarted
         encryptionKey?.let { key ->
             publishAndroidUnpairedControl(key)
         }
@@ -348,14 +349,22 @@ class ClipRelayService : Service() {
         pairingStore.clear()
         loadPairingState()
 
-        if (bleStarted) {
-            stopBleComponents(disconnectCentralsFirst = true)
-        } else {
-            sendConnectionBroadcast(false)
+        // Delay BLE disconnect to give the Mac time to receive the unpair control event
+        val disconnectAction = Runnable {
+            if (hadConnection) {
+                stopBleComponents(disconnectCentralsFirst = true)
+            } else {
+                sendConnectionBroadcast(false)
+            }
+            transferExecutor.execute {
+                inboundStateMachine.resetAll()
+            }
         }
 
-        transferExecutor.execute {
-            inboundStateMachine.resetAll()
+        if (hadConnection) {
+            Handler(Looper.getMainLooper()).postDelayed(disconnectAction, 500)
+        } else {
+            disconnectAction.run()
         }
     }
 

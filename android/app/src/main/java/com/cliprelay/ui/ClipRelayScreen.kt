@@ -343,17 +343,18 @@ private fun MainCard(
             )
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Device row
+            // Device row — top-aligned so icons line up regardless of label height
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
                 DeviceNode(
                     isPhone = true,
                     state = state,
                     label = "This phone"
                 )
+                // Offset beam to vertically center on the 80dp icon boxes
                 BeamCanvas(
                     state = state,
                     clipboardTransferFlow = clipboardTransferFlow,
@@ -361,6 +362,7 @@ private fun MainCard(
                         .weight(1f)
                         .height(40.dp)
                         .padding(horizontal = 8.dp)
+                        .offset(y = 20.dp)
                 )
                 DeviceNode(
                     isPhone = false,
@@ -453,7 +455,10 @@ private fun DeviceNode(
     )
     val labelColor = if (isActive) Color(0xB3000000) else Color(0x59000000)
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(90.dp)
+    ) {
         Box(
             modifier = Modifier
                 .size(80.dp)
@@ -476,7 +481,9 @@ private fun DeviceNode(
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
             color = labelColor,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
         )
     }
 }
