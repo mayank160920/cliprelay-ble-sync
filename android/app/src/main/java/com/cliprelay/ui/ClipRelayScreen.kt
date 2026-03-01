@@ -357,7 +357,7 @@ private fun MainCard(
                 Canvas(
                     modifier = Modifier
                         .size(100.dp)
-                        .offset(y = (-8).dp)
+                        .offset(y = (-20).dp)
                 ) {
                     val c = lockAlpha
                     if (c != Color.Transparent) {
