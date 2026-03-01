@@ -345,7 +345,7 @@ private fun MainCard(
 
             // Device row with background lock watermark when connected
             val lockAlpha by animateColorAsState(
-                targetValue = if (isConnected) Aqua.copy(alpha = 0.06f) else Color.Transparent,
+                targetValue = if (isConnected) Aqua.copy(alpha = 0.12f) else Color.Transparent,
                 animationSpec = tween(800),
                 label = "lockAlpha"
             )
@@ -356,8 +356,8 @@ private fun MainCard(
                 // Big lock watermark behind device row
                 Canvas(
                     modifier = Modifier
-                        .size(80.dp)
-                        .offset(y = 4.dp)
+                        .size(100.dp)
+                        .offset(y = (-8).dp)
                 ) {
                     val c = lockAlpha
                     if (c != Color.Transparent) {
