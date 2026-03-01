@@ -134,7 +134,7 @@ select_target_device() {
   local all_devices=()
   while IFS= read -r serial; do
     [[ -n "$serial" ]] && all_devices+=("$serial")
-  done < <(adb devices | tail -n +2 | awk '$2 == "device" { print $1 }')
+  done < <(adb devices | tr -d '\r' | awk -F '\t' 'NR > 1 && $2 == "device" { print $1 }')
 
   if [[ ${#all_devices[@]} -eq 0 ]]; then
     echo "No online Android device detected via adb" >&2
@@ -201,7 +201,7 @@ cleanup_smoke_pairing() {
 
   echo "- Cleaning up smoke pairing token"
   "$MAC_BIN" --smoke-remove-pairing --token "$PAIR_TOKEN" >/dev/null 2>&1 || true
-  ${ADB[@]} shell am broadcast \
+  "${ADB[@]}" shell am broadcast \
     -n com.cliprelay/.debug.DebugSmokeReceiver \
     -a com.cliprelay.debug.CLEAR_PAIRING \
     --receiver-foreground >/dev/null 2>&1 || true
@@ -218,7 +218,7 @@ require_cmd() {
 }
 
 probe_json() {
-  ${ADB[@]} shell run-as "$ANDROID_APP_ID" cat files/debug-smoke-state.json 2>/dev/null | tr -d '\r' || true
+  "${ADB[@]}" shell run-as "$ANDROID_APP_ID" cat files/debug-smoke-state.json 2>/dev/null | tr -d '\r' || true
 }
 
 probe_get() {
@@ -334,7 +334,7 @@ wait_for_mac_clipboard() {
 
 send_android_share_text() {
   local text="$1"
-  ${ADB[@]} shell am start \
+  "${ADB[@]}" shell am start \
     -n com.cliprelay/.ui.ShareReceiverActivity \
     -a android.intent.action.SEND \
     -t text/plain \
@@ -412,7 +412,7 @@ broadcast_debug_action() {
   shift
   local output
   output="$(
-    ${ADB[@]} shell am broadcast \
+    "${ADB[@]}" shell am broadcast \
       -n com.cliprelay/.debug.DebugSmokeReceiver \
       -a "$action" \
       --receiver-foreground \
@@ -426,7 +426,7 @@ broadcast_debug_action() {
 }
 
 start_android_app() {
-  ${ADB[@]} shell am start -W -n com.cliprelay/.ui.MainActivity >/dev/null 2>&1 || true
+  "${ADB[@]}" shell am start -W -n com.cliprelay/.ui.MainActivity >/dev/null 2>&1 || true
 }
 
 start_mac_app() {
@@ -449,22 +449,22 @@ start_mac_app() {
 }
 
 toggle_bluetooth() {
-  if ${ADB[@]} shell cmd bluetooth_manager disable >/dev/null 2>&1; then
-    if ! ${ADB[@]} shell cmd bluetooth_manager wait-for-state:STATE_OFF >/dev/null 2>&1; then
+  if "${ADB[@]}" shell cmd bluetooth_manager disable >/dev/null 2>&1; then
+    if ! "${ADB[@]}" shell cmd bluetooth_manager wait-for-state:STATE_OFF >/dev/null 2>&1; then
       return 1
     fi
-    if ! ${ADB[@]} shell cmd bluetooth_manager enable >/dev/null 2>&1; then
+    if ! "${ADB[@]}" shell cmd bluetooth_manager enable >/dev/null 2>&1; then
       return 1
     fi
-    if ! ${ADB[@]} shell cmd bluetooth_manager wait-for-state:STATE_ON >/dev/null 2>&1; then
+    if ! "${ADB[@]}" shell cmd bluetooth_manager wait-for-state:STATE_ON >/dev/null 2>&1; then
       return 1
     fi
     return 0
   fi
 
-  if ${ADB[@]} shell svc bluetooth disable >/dev/null 2>&1; then
+  if "${ADB[@]}" shell svc bluetooth disable >/dev/null 2>&1; then
     sleep 3
-    ${ADB[@]} shell svc bluetooth enable >/dev/null 2>&1
+    "${ADB[@]}" shell svc bluetooth enable >/dev/null 2>&1
     return 0
   fi
 
@@ -515,7 +515,7 @@ if [[ ! -f "$DIST_DIR/cliprelay-debug.apk" ]]; then
 fi
 
 echo "- Installing latest debug APK"
-${ADB[@]} install -r "$DIST_DIR/cliprelay-debug.apk" >/dev/null
+"${ADB[@]}" install -r "$DIST_DIR/cliprelay-debug.apk" >/dev/null
 
 for permission in \
   android.permission.BLUETOOTH_SCAN \
@@ -523,10 +523,10 @@ for permission in \
   android.permission.BLUETOOTH_ADVERTISE \
   android.permission.POST_NOTIFICATIONS
 do
-  ${ADB[@]} shell pm grant "$ANDROID_APP_ID" "$permission" >/dev/null 2>&1 || true
+  "${ADB[@]}" shell pm grant "$ANDROID_APP_ID" "$permission" >/dev/null 2>&1 || true
 done
 
-ANDROID_MODEL="$(${ADB[@]} shell getprop ro.product.model | tr -d '\r')"
+ANDROID_MODEL="$("${ADB[@]}" shell getprop ro.product.model | tr -d '\r')"
 MAC_NAME_RAW="$(scutil --get ComputerName 2>/dev/null || hostname)"
 MAC_NAME="$(printf '%s' "$MAC_NAME_RAW" | tr -cs '[:alnum:]_-.' '_')"
 PAIR_TOKEN="$(openssl rand -hex 32)"
@@ -537,7 +537,7 @@ echo "- Importing fresh pairing token"
 pkill -f "ClipRelay.app/Contents/MacOS/ClipRelay" >/dev/null 2>&1 || true
 "$MAC_BIN" --smoke-import-pairing --token "$PAIR_TOKEN" --name "$ANDROID_MODEL" >/dev/null
 
-${ADB[@]} shell am force-stop "$ANDROID_APP_ID" >/dev/null 2>&1 || true
+"${ADB[@]}" shell am force-stop "$ANDROID_APP_ID" >/dev/null 2>&1 || true
 start_android_app
 sleep 2
 
