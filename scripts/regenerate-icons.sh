@@ -27,24 +27,20 @@ svg_to_png() {
 echo "=== Android mipmap icons ==="
 
 gen_android_density() {
-  local density="$1" launcher_size="$2" fg_size="$3"
+  local density="$1" fg_size="$2"
   local dir="$ANDROID_RES/mipmap-$density"
   mkdir -p "$dir"
-
-  # Legacy launcher icon (full circle icon with bg)
-  echo "  $density: ic_launcher.png (${launcher_size}px)"
-  svg_to_png "$DESIGN/logo-android-icon.svg" "$dir/ic_launcher.png" "$launcher_size"
 
   # Adaptive icon foreground (mark only, transparent bg, safe-zone padded)
   echo "  $density: ic_launcher_foreground.png (${fg_size}px)"
   svg_to_png "$DESIGN/logo-android-foreground.svg" "$dir/ic_launcher_foreground.png" "$fg_size"
 }
 
-gen_android_density mdpi    48  108
-gen_android_density hdpi    72  162
-gen_android_density xhdpi   96  216
-gen_android_density xxhdpi  144 324
-gen_android_density xxxhdpi 192 432
+gen_android_density mdpi    108
+gen_android_density hdpi    162
+gen_android_density xhdpi   216
+gen_android_density xxhdpi  324
+gen_android_density xxxhdpi 432
 
 # ─── macOS StatusBar icons ───────────────────────────────────────────────────
 

@@ -77,7 +77,6 @@ All variants share these exact coordinates. Only styling (fills, strokes, effect
 | File                        | Size      | Description                                     |
 |-----------------------------|-----------|--------------------------------------------------|
 | `logo-full-dark.svg`        | 120x120   | Dark board + aqua gradient arcs + glow           |
-| `logo-android-icon.svg`     | 120x120   | Aqua circle bg, dark board, 3 black arcs         |
 | `logo-android-foreground.svg`| 108x108  | Adaptive icon foreground, mark on transparent     |
 | `logo-appicon.svg`          | 1024x1024 | Solid dark bg, 3x stroke widths, glow            |
 | `logo-menubar.svg`          | 120x120   | Black template strokes (macOS auto-tints)        |
