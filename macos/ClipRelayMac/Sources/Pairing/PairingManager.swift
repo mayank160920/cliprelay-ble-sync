@@ -1,6 +1,9 @@
 import CryptoKit
 import Foundation
 import Security
+import os
+
+private let pairingLogger = Logger(subsystem: "com.cliprelay", category: "Pairing")
 
 struct PairedDevice: Codable, Equatable {
     let token: String // 64-char hex
@@ -48,7 +51,7 @@ final class PairingManager {
         var bytes = [UInt8](repeating: 0, count: 32)
         let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         guard status == errSecSuccess else {
-            print("[Pairing] SecRandomCopyBytes failed with status \(status)")
+            pairingLogger.error("[Pairing] SecRandomCopyBytes failed with status \(status, privacy: .private)")
             return nil
         }
         return bytes.map { String(format: "%02x", $0) }.joined()

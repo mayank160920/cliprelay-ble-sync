@@ -51,7 +51,8 @@ adb shell "dumpsys activity services com.cliprelay"
 Should show `isForeground=true`.
 
 ### Check Mac BLE logs
-The Mac app logs to stdout with `[BLE]` prefix. Look for:
+The Mac app logs BLE events to unified logging (subsystem `com.cliprelay`, category `BLE`).
+Use `log show`/Console and include debug level when needed. Look for:
 - `[BLE] RSSI probe timeout` — keepalive detected dead link
 - `[BLE] Forcing disconnect of unresponsive peer` — keepalive triggered reconnection
 - `[BLE] Scan cycle: no connected peers` — periodic scan restart kicking in

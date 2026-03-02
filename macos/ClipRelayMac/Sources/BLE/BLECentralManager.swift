@@ -4,11 +4,23 @@ import CryptoKit
 import Foundation
 import os
 
-private let bleOSLog = OSLog(subsystem: "com.cliprelay", category: "BLE")
+private let bleLogger = Logger(subsystem: "com.cliprelay", category: "BLE")
 
-private func bleLog(_ message: String) {
-    print(message)
-    os_log("%{public}@", log: bleOSLog, type: .default, message)
+private enum BLELogLevel {
+    case debug
+    case info
+    case error
+}
+
+private func bleLog(_ message: String, level: BLELogLevel = .info) {
+    switch level {
+    case .debug:
+        bleLogger.debug("\(message, privacy: .private)")
+    case .info:
+        bleLogger.info("\(message, privacy: .private)")
+    case .error:
+        bleLogger.error("\(message, privacy: .private)")
+    }
 }
 
 enum BLEProtocol {
@@ -511,7 +523,7 @@ final class BLECentralManager: NSObject {
 
     private func probeConnectedPeers() {
         guard !connectedPeers.isEmpty else { return }
-        bleLog("[BLE] Keepalive probe: \(connectedPeers.count) connected peer(s)")
+        bleLog("[BLE] Keepalive probe: \(connectedPeers.count) connected peer(s)", level: .debug)
         let now = Date()
         for (id, peer) in connectedPeers {
             // Check if the previous RSSI probe was answered
@@ -566,7 +578,7 @@ final class BLECentralManager: NSObject {
 
     private func cycleScan() {
         guard centralManager.state == .poweredOn else { return }
-        bleLog("[BLE] Scan cycle tick: connectedPeers=\(connectedPeers.count) connecting=\(connectingPeerIDs.count) tokenMap=\(peripheralTokenMap.count)")
+        bleLog("[BLE] Scan cycle tick: connectedPeers=\(connectedPeers.count) connecting=\(connectingPeerIDs.count) tokenMap=\(peripheralTokenMap.count)", level: .debug)
         // If we have no connected peers, reset backoff and aggressively re-scan
         if connectedPeers.isEmpty {
             reconnectDelay = 1
@@ -655,7 +667,7 @@ final class BLECentralManager: NSObject {
 
     private func processControlPayload(_ plaintext: Data, from peripheralID: UUID) {
         guard let controlMessage = try? JSONDecoder().decode(ControlMessage.self, from: plaintext) else {
-            bleLog("[BLE] Invalid control payload from \(peripheralID)")
+            bleLog("[BLE] Invalid control payload from \(peripheralID)", level: .error)
             return
         }
 
@@ -788,25 +800,25 @@ extension BLECentralManager: CBCentralManagerDelegate {
         knownPeripherals[peripheralID] = peripheral
 
         let mfgData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data
-        bleLog("[BLE] Discovered \(peripheral.name ?? "nil") mfgData=\(mfgData?.map { String(format: "%02x", $0) }.joined() ?? "nil") rssi=\(RSSI)")
+        bleLog("[BLE] Discovered \(peripheral.name ?? "nil") mfgData=\(mfgData?.map { String(format: "%02x", $0) }.joined() ?? "nil") rssi=\(RSSI)", level: .debug)
 
         guard let tag = extractDeviceTag(from: advertisementData) else {
-            bleLog("[BLE]   -> No device tag in advertisement")
+            bleLog("[BLE]   -> No device tag in advertisement", level: .debug)
             _ = connectUsingPendingPairingFallbackIfAvailable(peripheralID: peripheralID)
             return
         }
-        bleLog("[BLE]   -> Tag: \(tag.map { String(format: "%02x", $0) }.joined())")
+        bleLog("[BLE]   -> Tag: \(tag.map { String(format: "%02x", $0) }.joined())", level: .debug)
         guard let device = pairingManager.findDevice(byTag: tag) else {
-            bleLog("[BLE]   -> No paired device matches this tag")
+            bleLog("[BLE]   -> No paired device matches this tag", level: .debug)
             let allDevices = pairingManager.loadDevices()
             for d in allDevices {
                 let dt = pairingManager.deviceTag(for: d.token)
-                bleLog("[BLE]      stored tag: \(dt?.map { String(format: "%02x", $0) }.joined() ?? "nil") name=\(d.displayName)")
+                bleLog("[BLE]      stored tag: \(dt?.map { String(format: "%02x", $0) }.joined() ?? "nil") name=\(d.displayName)", level: .debug)
             }
             _ = connectUsingPendingPairingFallbackIfAvailable(peripheralID: peripheralID)
             return
         }
-        bleLog("[BLE]   -> Matched paired device: \(device.displayName)")
+        bleLog("[BLE]   -> Matched paired device: \(device.displayName)", level: .debug)
 
         peripheralTokenMap[peripheralID] = device.token
 
@@ -869,7 +881,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        bleLog("[BLE] didFailToConnect: \(peripheral.name ?? "nil") error=\(error?.localizedDescription ?? "nil")")
+        bleLog("[BLE] didFailToConnect: \(peripheral.name ?? "nil") error=\(error?.localizedDescription ?? "nil")", level: .error)
         connectingPeerIDs.remove(peripheral.identifier)
         connectingSinceByPeerID.removeValue(forKey: peripheral.identifier)
 
@@ -884,7 +896,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
             return false
         }()
         if isConnectionLimitError {
-            bleLog("[BLE] *** Connection limit reached — cancelling all pending connections and entering cooldown ***")
+            bleLog("[BLE] *** Connection limit reached — cancelling all pending connections and entering cooldown ***", level: .error)
             cancelAllPendingConnections()
             connectionCooldownUntil = Date().addingTimeInterval(10)
             // Restart scanning after cooldown so we pick up peripherals fresh.
@@ -973,7 +985,7 @@ extension BLECentralManager: CBPeripheralDelegate {
         // GATT heartbeat: a read error on any characteristic means the remote
         // GATT server is gone — force-disconnect to trigger reconnection.
         if let error {
-            bleLog("[BLE] GATT read error for \(peripheral.name ?? "nil"): \(error.localizedDescription)")
+            bleLog("[BLE] GATT read error for \(peripheral.name ?? "nil"): \(error.localizedDescription)", level: .error)
             if let peer = connectedPeers[peripheralID] {
                 bleLog("[BLE] GATT heartbeat failure — disconnecting \(peer.displayName)")
                 centralManager.cancelPeripheralConnection(peer.peripheral)
@@ -982,7 +994,7 @@ extension BLECentralManager: CBPeripheralDelegate {
         }
 
         guard let data = characteristic.value else { return }
-        bleLog("[BLE] didUpdateValue: char=\(characteristic.uuid.uuidString) bytes=\(data.count)")
+        bleLog("[BLE] didUpdateValue: char=\(characteristic.uuid.uuidString) bytes=\(data.count)", level: .debug)
 
         if characteristic.uuid == BLEProtocol.availableUUID {
             processAvailableMetadata(data, for: peripheralID)
@@ -1002,12 +1014,12 @@ extension BLECentralManager: CBPeripheralDelegate {
 
         // Verify hash against metadata — reject if metadata was never received
         guard let metadata = pendingInboundMetadataByPeer.removeValue(forKey: peripheralID) else {
-            bleLog("[BLE] Rejecting assembled data: no metadata hash received for peer \(peripheralID)")
+            bleLog("[BLE] Rejecting assembled data: no metadata hash received for peer \(peripheralID)", level: .error)
             return
         }
         let assembledHash = sha256Hex(assembledData)
         guard metadata.hash == assembledHash else {
-            bleLog("[BLE] Hash mismatch: expected=\(metadata.hash) got=\(assembledHash)")
+            bleLog("[BLE] Hash mismatch: expected=\(metadata.hash) got=\(assembledHash)", level: .error)
             return
         }
 
@@ -1043,7 +1055,7 @@ extension BLECentralManager: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber, error: Error?) {
         let peripheralID = peripheral.identifier
         if error != nil {
-            bleLog("[BLE] RSSI read failed for \(peripheral.name ?? "nil"): \(error!.localizedDescription)")
+            bleLog("[BLE] RSSI read failed for \(peripheral.name ?? "nil"): \(error!.localizedDescription)", level: .error)
             let missCount = (rssiMissCountByPeerID[peripheralID] ?? 0) + 1
             rssiMissCountByPeerID[peripheralID] = missCount
             pendingRSSIProbeByPeerID.removeValue(forKey: peripheralID)

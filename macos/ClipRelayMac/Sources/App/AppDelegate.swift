@@ -1,4 +1,7 @@
 import AppKit
+import os
+
+private let appLogger = Logger(subsystem: "com.cliprelay", category: "App")
 
 enum PairingProgressAction: Equatable {
     case none
@@ -108,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pairingManager.removePendingDevices()
 
         guard let token = pairingManager.generateToken() else {
-            print("[Pairing] Failed to generate secure token")
+            appLogger.error("[Pairing] Failed to generate secure token")
             return
         }
         let device = PairedDevice(
