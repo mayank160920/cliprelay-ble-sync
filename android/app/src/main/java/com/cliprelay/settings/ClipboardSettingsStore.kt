@@ -13,7 +13,7 @@ class ClipboardSettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     fun isAutoClearSyncedClipboardEnabled(): Boolean {
-        return prefs.getBoolean(KEY_AUTO_CLEAR_SYNCED_CLIPBOARD, false)
+        return prefs.getBoolean(KEY_AUTO_CLEAR_SYNCED_CLIPBOARD, true)
     }
 
     fun setAutoClearSyncedClipboardEnabled(enabled: Boolean) {

@@ -326,6 +326,13 @@ final class BLECentralManager: NSObject {
             canonicalPeripheralIDByToken.removeValue(forKey: previousToken)
         }
 
+        if let canonicalID = canonicalPeripheralIDByToken[token],
+           canonicalID != peripheralID,
+           connectedPeers[canonicalID] != nil {
+            bleLog("[BLE] Ignoring duplicate peripheral while canonical peer is connected token=\(token) canonical=\(canonicalID) duplicate=\(peripheralID)", level: .debug)
+            return
+        }
+
         var duplicateIDs: [UUID] = []
         for (existingID, existingToken) in peripheralTokenMap {
             if existingToken == token, existingID != peripheralID {

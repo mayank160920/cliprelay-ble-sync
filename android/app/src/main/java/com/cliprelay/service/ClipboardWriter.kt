@@ -17,7 +17,8 @@ class ClipboardWriter(context: Context) {
     fun writeText(text: String) {
         val applyWrite = {
             val clip = ClipData.newPlainText(CLIP_LABEL, text)
-            clipboard.setPrimaryClip(clip)
+            runCatching { clipboard.setPrimaryClip(clip) }
+            Unit
         }
         if (Looper.myLooper() == Looper.getMainLooper()) applyWrite() else mainHandler.post(applyWrite)
     }
@@ -25,25 +26,29 @@ class ClipboardWriter(context: Context) {
     fun clearClipIfMatches(expectedText: String) {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             if (clipMatches(expectedText)) {
-                clipboard.clearPrimaryClip()
+                runCatching { clipboard.clearPrimaryClip() }
             }
         } else {
             mainHandler.post {
                 if (clipMatches(expectedText)) {
-                    clipboard.clearPrimaryClip()
+                    runCatching { clipboard.clearPrimaryClip() }
                 }
             }
         }
     }
 
     private fun clipMatches(expectedText: String): Boolean {
-        val currentClip = clipboard.primaryClip ?: return false
-        if (currentClip.itemCount == 0) return false
+        return try {
+            val currentClip = clipboard.primaryClip ?: return false
+            if (currentClip.itemCount == 0) return false
 
-        val currentLabel = clipboard.primaryClipDescription?.label?.toString()
-        if (currentLabel != CLIP_LABEL) return false
+            val currentLabel = clipboard.primaryClipDescription?.label?.toString()
+            if (currentLabel != CLIP_LABEL) return false
 
-        val currentText = currentClip.getItemAt(0).text?.toString() ?: return false
-        return currentText == expectedText
+            val currentText = currentClip.getItemAt(0).text?.toString() ?: return false
+            currentText == expectedText
+        } catch (_: SecurityException) {
+            false
+        }
     }
 }
