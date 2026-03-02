@@ -294,6 +294,11 @@ private fun MainCard(
         is AppState.Searching -> state.deviceName
         else -> null
     }
+    val deviceTag = when (state) {
+        is AppState.Connected -> state.deviceTag
+        is AppState.Searching -> state.deviceTag
+        else -> null
+    }
 
     Box(
         modifier = Modifier
@@ -416,6 +421,14 @@ private fun MainCard(
                         color = Teal.copy(alpha = 0.4f),
                         fontWeight = FontWeight.Medium
                     )
+                    if (deviceTag != null) {
+                        Text(
+                            text = deviceTag,
+                            fontSize = 10.sp,
+                            color = Teal.copy(alpha = 0.25f),
+                            fontWeight = FontWeight.Normal
+                        )
+                    }
                 }
                 }
 

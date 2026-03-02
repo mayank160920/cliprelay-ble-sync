@@ -16,6 +16,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
+import com.cliprelay.crypto.E2ECrypto
 import com.cliprelay.pairing.PairingStore
 import com.cliprelay.permissions.BlePermissions
 import com.cliprelay.service.ClipRelayService
@@ -69,11 +70,16 @@ class MainActivity : AppCompatActivity() {
         ensureServiceRunning()
         clipboardSettingsStore = ClipboardSettingsStore(this)
 
-        val isPaired = PairingStore(this).loadToken() != null
+        val token = PairingStore(this).loadToken()
+        val isPaired = token != null
         val deviceName = getSharedPreferences(ClipRelayService.PREFS_NAME, MODE_PRIVATE)
             .getString(ClipRelayService.KEY_CONNECTED_DEVICE, null)
+        val deviceTag = token?.let { t ->
+            val hex = E2ECrypto.deviceTag(t).joinToString("") { "%02X".format(it) }
+            hex.chunked(4).joinToString(" ") // "9A93 227C E19A 8A39"
+        }
         val autoClearEnabled = clipboardSettingsStore.isAutoClearSyncedClipboardEnabled()
-        viewModel.initState(isPaired, deviceName, autoClearEnabled)
+        viewModel.initState(isPaired, deviceName, deviceTag, autoClearEnabled)
 
         setContent {
             val state by viewModel.state.collectAsState()

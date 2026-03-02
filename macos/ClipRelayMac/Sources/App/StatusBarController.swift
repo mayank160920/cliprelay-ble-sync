@@ -136,7 +136,13 @@ final class StatusBarController {
         for peer in trustedPeers {
             let isConnected = connectedIDs.contains(peer.id)
 
-            let item = NSMenuItem(title: peer.description, action: nil, keyEquivalent: "")
+            let title: String
+            if let tag = peer.deviceTagHex {
+                title = "\(peer.description)  [\(tag)]"
+            } else {
+                title = peer.description
+            }
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             item.image = isConnected ? connectedDot : disconnectedDot
             item.isEnabled = true
 

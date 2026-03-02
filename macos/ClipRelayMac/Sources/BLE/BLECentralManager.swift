@@ -58,6 +58,7 @@ struct PeerSummary {
     let id: UUID
     let description: String
     var token: String?
+    var deviceTagHex: String?
 }
 
 private struct ConnectedPeer {
@@ -478,15 +479,26 @@ final class BLECentralManager: NSObject {
     private func connectedPeerSummaries() -> [PeerSummary] {
         connectedPeers.values
             .filter { $0.availableCharacteristic != nil && $0.dataCharacteristic != nil }
-            .map { PeerSummary(id: deviceStableID(token: $0.token), description: $0.displayName, token: $0.token) }
+            .map { PeerSummary(id: deviceStableID(token: $0.token), description: $0.displayName, token: $0.token, deviceTagHex: formattedDeviceTagHex(token: $0.token)) }
             .sorted { $0.description.localizedCaseInsensitiveCompare($1.description) == .orderedAscending }
     }
 
     private func trustedPeerSummaries() -> [PeerSummary] {
         pairingManager.loadDevices().map { device in
-            PeerSummary(id: deviceStableID(token: device.token), description: device.displayName, token: device.token)
+            PeerSummary(id: deviceStableID(token: device.token), description: device.displayName, token: device.token, deviceTagHex: formattedDeviceTagHex(token: device.token))
         }
         .sorted { $0.description.localizedCaseInsensitiveCompare($1.description) == .orderedAscending }
+    }
+
+    private func formattedDeviceTagHex(token: String) -> String? {
+        guard let data = pairingManager.deviceTag(for: token) else { return nil }
+        let hex = data.map { String(format: "%02X", $0) }.joined()
+        // Group into chunks of 4: "9A93 227C E19A 8A39"
+        return stride(from: 0, to: hex.count, by: 4).map { i in
+            let start = hex.index(hex.startIndex, offsetBy: i)
+            let end = hex.index(start, offsetBy: min(4, hex.count - i))
+            return String(hex[start..<end])
+        }.joined(separator: " ")
     }
 
     /// Stable UUID derived from token for UI identification (not a BLE peripheral UUID).

@@ -9,8 +9,8 @@ import kotlinx.coroutines.flow.asStateFlow
 
 sealed class AppState {
     object Unpaired : AppState()
-    data class Searching(val deviceName: String? = null) : AppState()
-    data class Connected(val deviceName: String?) : AppState()
+    data class Searching(val deviceName: String? = null, val deviceTag: String? = null) : AppState()
+    data class Connected(val deviceName: String?, val deviceTag: String? = null) : AppState()
 }
 
 class MainViewModel : ViewModel() {
@@ -27,8 +27,8 @@ class MainViewModel : ViewModel() {
     private val _clipboardTransfer = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
     val clipboardTransfer: SharedFlow<Boolean> = _clipboardTransfer
 
-    fun initState(isPaired: Boolean, deviceName: String? = null, autoClearEnabled: Boolean = false) {
-        _state.value = if (isPaired) AppState.Searching(deviceName) else AppState.Unpaired
+    fun initState(isPaired: Boolean, deviceName: String? = null, deviceTag: String? = null, autoClearEnabled: Boolean = false) {
+        _state.value = if (isPaired) AppState.Searching(deviceName, deviceTag) else AppState.Unpaired
         _autoClearEnabled.value = autoClearEnabled
     }
 
@@ -48,7 +48,12 @@ class MainViewModel : ViewModel() {
     fun onConnectionChanged(connected: Boolean, deviceName: String?) {
         // Don't let stale connection broadcasts override the Unpaired state.
         if (_state.value is AppState.Unpaired) return
-        _state.value = if (connected) AppState.Connected(deviceName) else AppState.Searching(deviceName)
+        val currentTag = when (val s = _state.value) {
+            is AppState.Searching -> s.deviceTag
+            is AppState.Connected -> s.deviceTag
+            else -> null
+        }
+        _state.value = if (connected) AppState.Connected(deviceName, currentTag) else AppState.Searching(deviceName, currentTag)
     }
 
     fun onClipboardTransfer(fromMac: Boolean) {
