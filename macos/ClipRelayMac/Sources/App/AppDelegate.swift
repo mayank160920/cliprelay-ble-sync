@@ -210,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             activeSession = nil
             connectedToken = nil
             connectionManager?.disconnect()
-            statusBarController.updateConnectionState(connected: false, deviceName: nil)
+            statusBarController.setConnectedPeers([])
         }
 
         refreshTrustedPeersMenu()
