@@ -224,9 +224,14 @@ body::after {
   gap: 16px;
   flex-wrap: wrap;
   justify-content: center;
+  align-items: center;
   position: relative;
   z-index: 1;
 }
+
+.store-badge { display: inline-block; line-height: 0; }
+.store-badge:hover { opacity: 0.85; text-decoration: none; }
+.store-badge img { display: block; height: 80px; }
 
 /* ── Device Showcase ── */
 .hero-showcase {
@@ -561,10 +566,10 @@ body::after {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 28px;
+  padding: 12px 12px;
   border-radius: 12px;
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 0.95rem;
   text-decoration: none !important;
   transition: transform 0.2s, box-shadow 0.2s;
   cursor: pointer;
