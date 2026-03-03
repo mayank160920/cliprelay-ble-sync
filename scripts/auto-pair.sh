@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 MAC_APP="$DIST_DIR/ClipRelay.app"
 MAC_BINARY="$MAC_APP/Contents/MacOS/ClipRelay"
-ANDROID_PKG="com.cliprelay"
+ANDROID_PKG="org.cliprelay"
 ANDROID_PREFS_DIR="/data/data/$ANDROID_PKG/shared_prefs"
 
 usage() {
@@ -85,7 +85,7 @@ MAC_NAME="$(printf '%s' "$MAC_NAME_RAW" | tr -cs '[:alnum:]_-.' '_')"
 # Inject token via debug broadcast receiver
 adb shell am broadcast \
     -n "$ANDROID_PKG/.debug.DebugSmokeReceiver" \
-    -a "com.cliprelay.debug.IMPORT_PAIRING" \
+    -a "org.cliprelay.debug.IMPORT_PAIRING" \
     --es token "$TOKEN" \
     --es device_name "$MAC_NAME" \
     --receiver-foreground 2>&1 | tail -1

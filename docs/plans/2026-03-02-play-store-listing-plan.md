@@ -157,8 +157,8 @@ git commit -m "feat(android): add 512x512 Play Store icon"
 If the app is paired, unpair first. Then capture:
 
 ```bash
-adb shell am force-stop com.cliprelay
-adb shell am start -n com.cliprelay/.ui.MainActivity
+adb shell am force-stop org.cliprelay
+adb shell am start -n org.cliprelay/.ui.MainActivity
 sleep 2
 adb exec-out screencap -p > googleplay/listings/en-US/graphics/phoneScreenshots/1.png
 ```

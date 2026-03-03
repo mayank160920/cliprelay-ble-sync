@@ -23,7 +23,7 @@
 ## App Restart After Code Changes
 - After every major code change (new feature, bug fix, refactor), restart both apps so the user can immediately verify the fix:
   - **Mac**: Kill any running ClipRelay process (`pkill -f ClipRelay`) and relaunch with `open dist/ClipRelay.app`
-  - **Android**: Install the new APK (`adb install -r dist/cliprelay-debug.apk`), force-stop the app (`adb shell am force-stop com.cliprelay`), and relaunch (`adb shell am start -n com.cliprelay/.ui.MainActivity`)
+  - **Android**: Install the new APK (`adb install -r dist/cliprelay-debug.apk`), force-stop the app (`adb shell am force-stop org.cliprelay`), and relaunch (`adb shell am start -n org.cliprelay/.ui.MainActivity`)
 - Do not skip this step or tell the user to do it manually.
 
 ## macOS Notarization

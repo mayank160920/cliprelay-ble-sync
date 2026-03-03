@@ -5,7 +5,7 @@ import CryptoKit
 import os
 import ServiceManagement
 
-private let appLogger = Logger(subsystem: "com.cliprelay", category: "App")
+private let appLogger = Logger(subsystem: "org.cliprelay", category: "App")
 
 /// Simple file logger for debugging when NSLog / os.Logger output is not accessible.
 private func debugLog(_ message: String) {

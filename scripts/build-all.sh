@@ -106,7 +106,7 @@ build_mac() {
   <key>CFBundleDisplayName</key>
   <string>ClipRelay</string>
   <key>CFBundleIdentifier</key>
-  <string>com.cliprelay.mac</string>
+  <string>org.cliprelay.mac</string>
   <key>CFBundleExecutable</key>
   <string>ClipRelay</string>
   <key>CFBundlePackageType</key>

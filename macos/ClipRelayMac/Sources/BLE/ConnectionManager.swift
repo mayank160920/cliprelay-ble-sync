@@ -4,7 +4,7 @@ import CoreBluetooth
 import Foundation
 import os
 
-private let connLogger = Logger(subsystem: "com.cliprelay", category: "ConnectionManager")
+private let connLogger = Logger(subsystem: "org.cliprelay", category: "ConnectionManager")
 
 private func debugLog(_ message: String) {
     let ts = ISO8601DateFormatter().string(from: Date())

@@ -57,11 +57,11 @@ val playServiceAccountFile = playValue("serviceAccountCredentials", "PLAY_SERVIC
 val playTrack = playValue("track", "PLAY_TRACK") ?: "internal"
 
 android {
-    namespace = "com.cliprelay"
+    namespace = "org.cliprelay"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.cliprelay"
+        applicationId = "org.cliprelay"
         minSdk = 29
         targetSdk = 35
         versionCode = 2

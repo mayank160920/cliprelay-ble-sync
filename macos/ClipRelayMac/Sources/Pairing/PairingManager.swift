@@ -5,7 +5,7 @@ import Foundation
 import Security
 import os
 
-private let pairingLogger = Logger(subsystem: "com.cliprelay", category: "Pairing")
+private let pairingLogger = Logger(subsystem: "org.cliprelay", category: "Pairing")
 
 struct PairedDevice: Codable, Equatable {
     let token: String // 64-char hex

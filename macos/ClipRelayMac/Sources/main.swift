@@ -3,7 +3,7 @@
 import AppKit
 import os
 
-private let bootstrapLogger = Logger(subsystem: "com.cliprelay", category: "Bootstrap")
+private let bootstrapLogger = Logger(subsystem: "org.cliprelay", category: "Bootstrap")
 
 private func hasAnotherRunningInstance() -> Bool {
     guard let bundleID = Bundle.main.bundleIdentifier else { return false }

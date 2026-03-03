@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
-ANDROID_APP_ID="com.cliprelay"
+ANDROID_APP_ID="org.cliprelay"
 MAC_APP_PATH="$DIST_DIR/ClipRelay.app"
 MAC_BIN="$MAC_APP_PATH/Contents/MacOS/ClipRelay"
 
@@ -247,8 +247,8 @@ cleanup_smoke_pairing() {
   echo "- Cleaning up smoke pairing token"
   "$MAC_BIN" --smoke-remove-pairing --token "$PAIR_TOKEN" >/dev/null 2>&1 || true
   "${ADB[@]}" shell am broadcast \
-    -n com.cliprelay/.debug.DebugSmokeReceiver \
-    -a com.cliprelay.debug.CLEAR_PAIRING \
+    -n org.cliprelay/.debug.DebugSmokeReceiver \
+    -a org.cliprelay.debug.CLEAR_PAIRING \
     --receiver-foreground >/dev/null 2>&1 || true
 }
 
@@ -271,7 +271,7 @@ dump_failure_diagnostics() {
   "${ADB[@]}" logcat -d -s BluetoothGattServer ClipRelayService L2capServer PsmGattServer 2>/dev/null || true
 
   echo "- Recent macOS ClipRelay logs:"
-  /usr/bin/log show --last 2m --style compact --info --debug --predicate 'subsystem == "com.cliprelay"' 2>/dev/null || true
+  /usr/bin/log show --last 2m --style compact --info --debug --predicate 'subsystem == "org.cliprelay"' 2>/dev/null || true
 }
 
 on_error() {
@@ -424,7 +424,7 @@ wait_for_mac_clipboard() {
 send_android_share_text() {
   local text="$1"
   "${ADB[@]}" shell am start \
-    -n com.cliprelay/.ui.ShareReceiverActivity \
+    -n org.cliprelay/.ui.ShareReceiverActivity \
     -a android.intent.action.SEND \
     -t text/plain \
     --es android.intent.extra.TEXT "$text" >/dev/null
@@ -561,7 +561,7 @@ broadcast_debug_action() {
   local output
   output="$(
     "${ADB[@]}" shell am broadcast \
-      -n com.cliprelay/.debug.DebugSmokeReceiver \
+      -n org.cliprelay/.debug.DebugSmokeReceiver \
       -a "$action" \
       --receiver-foreground \
       "$@" 2>&1 | tr -d '\r'
@@ -574,7 +574,7 @@ broadcast_debug_action() {
 }
 
 start_android_app() {
-  "${ADB[@]}" shell am start -W -n com.cliprelay/.ui.MainActivity >/dev/null 2>&1 || true
+  "${ADB[@]}" shell am start -W -n org.cliprelay/.ui.MainActivity >/dev/null 2>&1 || true
 }
 
 start_mac_app() {
@@ -689,8 +689,8 @@ pkill -f "ClipRelay.app/Contents/MacOS/ClipRelay" >/dev/null 2>&1 || true
 start_android_app
 sleep 2
 
-broadcast_debug_action "com.cliprelay.debug.IMPORT_PAIRING" --es token "$PAIR_TOKEN" --es device_name "$MAC_NAME"
-broadcast_debug_action "com.cliprelay.debug.RESET_PROBE"
+broadcast_debug_action "org.cliprelay.debug.IMPORT_PAIRING" --es token "$PAIR_TOKEN" --es device_name "$MAC_NAME"
+broadcast_debug_action "org.cliprelay.debug.RESET_PROBE"
 
 start_mac_app
 
