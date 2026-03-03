@@ -30,10 +30,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let notificationManager = ReceiveNotificationManager()
     private let pairingWindowController = PairingWindowController()
 
-    // Old BLE manager — kept until Task 7 removes it
-    private var bleManager: BLECentralManager?
-
-    // New L2CAP components
     private var connectionManager: ConnectionManager!
     private var activeSession: Session?
     private var sessionThread: Thread?

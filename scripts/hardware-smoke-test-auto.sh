@@ -267,7 +267,7 @@ dump_failure_diagnostics() {
   fi
 
   echo "- Recent Android BLE logs:"
-  "${ADB[@]}" logcat -d -s BluetoothGattServer GattServerCallback ClipRelayService 2>/dev/null || true
+  "${ADB[@]}" logcat -d -s BluetoothGattServer ClipRelayService L2capServer PsmGattServer 2>/dev/null || true
 
   echo "- Recent macOS ClipRelay logs:"
   /usr/bin/log show --last 2m --style compact --info --debug --predicate 'subsystem == "com.cliprelay"' 2>/dev/null || true
