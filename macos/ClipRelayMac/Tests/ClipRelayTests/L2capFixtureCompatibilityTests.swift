@@ -122,9 +122,30 @@ final class L2capFixtureCompatibilityTests: XCTestCase {
             try MessageCodec.decode(from: encodedData, offset: &offset),
             "Expected error for negative case '\(name)'"
         ) { error in
-            guard error is ProtocolError else {
+            guard let protocolError = error as? ProtocolError else {
                 XCTFail("Expected ProtocolError, got \(error)")
                 return
+            }
+            let expectedError = entry.expectedError
+            switch expectedError {
+            case "unknown_type":
+                guard case .unknownType = protocolError else {
+                    XCTFail("Expected .unknownType, got \(protocolError)")
+                    return
+                }
+            case "incomplete_header":
+                XCTAssertEqual(protocolError, .incompleteHeader,
+                    "Expected .incompleteHeader, got \(protocolError)")
+            case "empty_message":
+                XCTAssertEqual(protocolError, .emptyMessage,
+                    "Expected .emptyMessage, got \(protocolError)")
+            case "message_too_large":
+                guard case .messageTooLarge = protocolError else {
+                    XCTFail("Expected .messageTooLarge, got \(protocolError)")
+                    return
+                }
+            default:
+                XCTFail("Unrecognized expected_error '\(expectedError)' in fixture")
             }
         }
     }

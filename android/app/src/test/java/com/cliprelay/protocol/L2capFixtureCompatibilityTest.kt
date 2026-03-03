@@ -3,6 +3,7 @@ package com.cliprelay.protocol
 import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import java.io.ByteArrayInputStream
@@ -121,11 +122,18 @@ class L2capFixtureCompatibilityTest {
         requireNotNull(entry) { "Negative case '$caseName' not found in fixture" }
 
         val encodedHex = entry.getString("encoded_hex")
+        val expectedError = entry.getString("expected_error")
+        val expectedSubstring = ERROR_SUBSTRINGS[expectedError]
+            ?: error("Unrecognized expected_error '$expectedError' in fixture")
         try {
             MessageCodec.decode(ByteArrayInputStream(hexToBytes(encodedHex)))
             fail("Expected ProtocolException for negative case '$caseName'")
         } catch (e: ProtocolException) {
-            // expected
+            val msg = e.message?.lowercase() ?: ""
+            assertTrue(
+                "Expected exception message to contain '$expectedSubstring' but was '${e.message}'",
+                msg.contains(expectedSubstring)
+            )
         }
     }
 
@@ -168,4 +176,15 @@ class L2capFixtureCompatibilityTest {
 
     private fun bytesToHex(bytes: ByteArray): String =
         bytes.joinToString("") { "%02x".format(it) }
+
+    companion object {
+        /** Maps fixture expected_error values to substrings found in ProtocolException messages. */
+        private val ERROR_SUBSTRINGS = mapOf(
+            "unknown_type" to "unknown message type",
+            "incomplete_header" to "incomplete header",
+            "empty_message" to "empty message",
+            "message_too_large" to "message too large",
+            "incomplete_body" to "incomplete body"
+        )
+    }
 }

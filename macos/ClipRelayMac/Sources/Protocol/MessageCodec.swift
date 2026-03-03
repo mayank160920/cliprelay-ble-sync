@@ -87,7 +87,7 @@ enum MessageCodec {
 
     /// Decode a message from an InputStream (blocking read).
     static func decode(from inputStream: InputStream) throws -> Message {
-        let headerBytes = try readExactly(from: inputStream, count: headerSize)
+        let headerBytes = try readExactly(from: inputStream, count: headerSize, onFail: .incompleteHeader)
 
         let messageLength = Int(
             UInt32(headerBytes[0]) << 24 |
@@ -104,7 +104,7 @@ enum MessageCodec {
             throw ProtocolError.messageTooLarge(messageLength)
         }
 
-        let body = try readExactly(from: inputStream, count: messageLength)
+        let body = try readExactly(from: inputStream, count: messageLength, onFail: .incompleteBody)
 
         let typeByte = body[0]
         guard let type = MessageType(rawValue: typeByte) else {
@@ -116,18 +116,14 @@ enum MessageCodec {
         return Message(type: type, payload: payload)
     }
 
-    private static func readExactly(from stream: InputStream, count: Int) throws -> [UInt8] {
+    private static func readExactly(from stream: InputStream, count: Int, onFail: ProtocolError) throws -> [UInt8] {
         var buffer = [UInt8](repeating: 0, count: count)
         var totalRead = 0
 
         while totalRead < count {
             let read = stream.read(&buffer + totalRead, maxLength: count - totalRead)
             if read <= 0 {
-                if totalRead == 0 {
-                    throw ProtocolError.incompleteHeader
-                } else {
-                    throw ProtocolError.incompleteBody
-                }
+                throw onFail
             }
             totalRead += read
         }

@@ -45,8 +45,7 @@ object MessageCodec {
     }
 
     fun decode(input: InputStream): Message {
-        val headerBytes = readExactly(input, HEADER_SIZE)
-            ?: throw ProtocolException("Incomplete header: expected $HEADER_SIZE bytes")
+        val headerBytes = readExactly(input, HEADER_SIZE, "Incomplete header")
 
         val messageLength = ByteBuffer.wrap(headerBytes).order(ByteOrder.BIG_ENDIAN).int
 
@@ -58,8 +57,7 @@ object MessageCodec {
             throw ProtocolException("Message too large: $messageLength bytes exceeds maximum of $MAX_MESSAGE_SIZE")
         }
 
-        val body = readExactly(input, messageLength)
-            ?: throw ProtocolException("Incomplete body: expected $messageLength bytes")
+        val body = readExactly(input, messageLength, "Incomplete body")
 
         val typeByte = body[0]
         val type = MessageType.fromByte(typeByte)
@@ -73,14 +71,13 @@ object MessageCodec {
         output.flush()
     }
 
-    private fun readExactly(input: InputStream, count: Int): ByteArray? {
+    private fun readExactly(input: InputStream, count: Int, onFail: String): ByteArray {
         val buffer = ByteArray(count)
         var offset = 0
         while (offset < count) {
             val read = input.read(buffer, offset, count - offset)
             if (read == -1) {
-                return if (offset == 0) null
-                else throw ProtocolException("Stream ended after $offset bytes, expected $count")
+                throw ProtocolException("$onFail: expected $count bytes, got $offset")
             }
             offset += read
         }
