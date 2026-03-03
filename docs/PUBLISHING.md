@@ -132,7 +132,7 @@ op run --env-file .env.play -- ./scripts/publish-android.sh --track production
   - Download button for macOS `.dmg`
   - Link to Google Play Store for Android
   - Privacy policy page
-  - Minimum system requirements (macOS 13+, Android 10+)
+  - Minimum system requirements (macOS 13+, Android 11+)
 - [ ] Set up HTTPS (e.g., Cloudflare, Netlify, GitHub Pages with custom domain)
 - [ ] Host the Sparkle appcast.xml for macOS auto-updates
 
