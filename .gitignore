@@ -19,3 +19,4 @@ android/*service-account*.json
 *.jks
 dist/
 notes.md
+.worktrees/
