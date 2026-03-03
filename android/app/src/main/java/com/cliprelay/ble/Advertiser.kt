@@ -41,6 +41,7 @@ class Advertiser(private val context: Context, private val serviceUuid: ParcelUu
     }
 
     var deviceTag: ByteArray? = null
+    var psm: Int = 0
 
     fun start() {
         shouldAdvertise = true
@@ -75,15 +76,20 @@ class Advertiser(private val context: Context, private val serviceUuid: ParcelUu
             .addServiceUuid(serviceUuid)
             .build()
 
-        // Scan response: device tag as manufacturer data + device name.
-        // Manufacturer data: 2 (company ID) + 8 (tag) = 10 bytes + overhead ~12 bytes.
-        // Device name: up to ~17 chars. Both fit in 31 bytes.
+        // Scan response: device tag + PSM as manufacturer data, plus device name.
+        // Manufacturer data: 2 (company ID) + 8 (tag) + 2 (PSM) = 12 bytes + overhead ~12 bytes.
+        // Device name: up to ~15 chars. Both fit in 31 bytes.
         val scanResponseBuilder = AdvertiseData.Builder()
             .setIncludeDeviceName(includeDeviceName)
         val tag = deviceTag
         if (tag != null) {
+            // Pack: [device_tag: 8 bytes][psm: 2 bytes big-endian]
+            val payload = ByteArray(tag.size + 2)
+            System.arraycopy(tag, 0, payload, 0, tag.size)
+            payload[tag.size] = (psm shr 8).toByte()
+            payload[tag.size + 1] = (psm and 0xFF).toByte()
             // 0xFFFF = Bluetooth SIG reserved for testing/development
-            scanResponseBuilder.addManufacturerData(0xFFFF, tag)
+            scanResponseBuilder.addManufacturerData(0xFFFF, payload)
         }
         val scanResponse = scanResponseBuilder.build()
 

@@ -4,6 +4,19 @@ import os
 
 private let connLogger = Logger(subsystem: "com.cliprelay", category: "ConnectionManager")
 
+private func debugLog(_ message: String) {
+    let ts = ISO8601DateFormatter().string(from: Date())
+    let line = "[\(ts)] \(message)\n"
+    let path = "/tmp/cliprelay-debug.log"
+    if let fh = FileHandle(forWritingAtPath: path) {
+        fh.seekToEndOfFile()
+        fh.write(Data(line.utf8))
+        fh.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: Data(line.utf8))
+    }
+}
+
 // MARK: - Delegate
 
 protocol ConnectionManagerDelegate: AnyObject {
@@ -20,8 +33,7 @@ class ConnectionManager: NSObject {
     enum State: Equatable {
         case idle
         case scanning
-        case connecting(CBPeripheral)
-        case readingPSM(CBPeripheral)
+        case connecting(CBPeripheral, CBL2CAPPSM)
         case openingL2CAP(CBPeripheral)
         case connected(CBPeripheral)
     }
@@ -40,7 +52,6 @@ class ConnectionManager: NSObject {
     private var matchedToken: String?
 
     static let serviceUUID = CBUUID(string: "c10b0001-1234-5678-9abc-def012345678")
-    static let psmCharUUID = CBUUID(string: "c10b0010-1234-5678-9abc-def012345678")
     static let maxReconnectDelay: TimeInterval = 30.0
 
     override init() {
@@ -60,6 +71,7 @@ class ConnectionManager: NSObject {
         guard centralManager?.state == .poweredOn else { return }
         guard case .idle = state else { return }
         state = .scanning
+        debugLog("[CM] Starting BLE scan")
         connLogger.info("Starting BLE scan for ClipRelay peripherals")
         centralManager.scanForPeripherals(withServices: [Self.serviceUUID], options: nil)
     }
@@ -69,8 +81,7 @@ class ConnectionManager: NSObject {
         reconnectTimer = nil
 
         switch state {
-        case .connecting(let peripheral),
-             .readingPSM(let peripheral),
+        case .connecting(let peripheral, _),
              .openingL2CAP(let peripheral),
              .connected(let peripheral):
             centralManager?.cancelPeripheralConnection(peripheral)
@@ -97,13 +108,22 @@ class ConnectionManager: NSObject {
         reconnectDelay = min(reconnectDelay * 2, Self.maxReconnectDelay)
     }
 
-    // MARK: - Tag Extraction (internal for testing)
+    // MARK: - Manufacturer Data Extraction (internal for testing)
 
     /// Extract the 8-byte device tag from manufacturer data.
-    /// Manufacturer data format: [2-byte company ID (0xFFFF)][8-byte device tag]
+    /// Manufacturer data format: [2-byte company ID][8-byte device tag][2-byte PSM]
     static func extractDeviceTag(from manufacturerData: Data) -> Data? {
         guard manufacturerData.count >= 10 else { return nil }
         return manufacturerData.subdata(in: 2..<10)
+    }
+
+    /// Extract the L2CAP PSM from manufacturer data.
+    /// Manufacturer data format: [2-byte company ID][8-byte device tag][2-byte PSM big-endian]
+    static func extractPSM(from manufacturerData: Data) -> CBL2CAPPSM? {
+        guard manufacturerData.count >= 12 else { return nil }
+        let psm = UInt16(manufacturerData[10]) << 8 | UInt16(manufacturerData[11])
+        guard psm > 0 else { return nil }
+        return CBL2CAPPSM(psm)
     }
 
     // MARK: - Backoff (internal for testing)
@@ -127,11 +147,11 @@ class ConnectionManager: NSObject {
 
 extension ConnectionManager: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        debugLog("[CM] Bluetooth state: \(central.state.rawValue)")
         if central.state == .poweredOn {
             reconnectDelay = 1.0  // reset backoff on BT power cycle
             startScanning()
         } else {
-            // BT turned off or unavailable -- go idle
             connLogger.info("Bluetooth state changed: \(central.state.rawValue)")
             state = .idle
         }
@@ -139,37 +159,45 @@ extension ConnectionManager: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                          advertisementData: [String: Any], rssi: NSNumber) {
-        // Extract device tag from manufacturer data
+        // Extract device tag and PSM from manufacturer data
         guard let mfgData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data else { return }
         guard let tag = Self.extractDeviceTag(from: mfgData) else { return }
+        guard let psm = Self.extractPSM(from: mfgData) else { return }
 
         // Match against paired tokens
         guard let matched = pairedDevices().first(where: { $0.tag == tag }) else { return }
         matchedToken = matched.token
-        connLogger.info("Matched device tag for token: \(matched.token, privacy: .private)")
+        debugLog("[CM] Matched device tag, PSM=\(psm)")
+        connLogger.info("Matched device tag for token, PSM=\(psm)")
 
-        // Stop scanning, connect
+        // Stop scanning, connect (will open L2CAP after BLE connection)
         central.stopScan()
-        state = .connecting(peripheral)
+        state = .connecting(peripheral, psm)
         peripheral.delegate = self
         central.connect(peripheral)
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        connLogger.info("Connected to peripheral, discovering services")
-        state = .readingPSM(peripheral)
-        peripheral.discoverServices([Self.serviceUUID])
+        guard case .connecting(_, let psm) = state else {
+            connLogger.error("Connected but not in connecting state")
+            centralManager.cancelPeripheralConnection(peripheral)
+            return
+        }
+        debugLog("[CM] Connected, opening L2CAP (PSM=\(psm))")
+        connLogger.info("Connected to peripheral, opening L2CAP channel (PSM=\(psm))")
+        state = .openingL2CAP(peripheral)
+        peripheral.openL2CAPChannel(psm)
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        connLogger.error("Failed to connect: \(error?.localizedDescription ?? "unknown")")
+        debugLog("[CM] Failed to connect: \(error?.localizedDescription ?? "unknown")")
         state = .idle
         scheduleReconnect()
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral,
                          error: Error?) {
-        connLogger.info("Disconnected from peripheral: \(error?.localizedDescription ?? "clean")")
+        debugLog("[CM] Disconnected: \(error?.localizedDescription ?? "clean")")
         let token = matchedToken
         l2capChannel = nil
         matchedToken = nil
@@ -184,47 +212,9 @@ extension ConnectionManager: CBCentralManagerDelegate {
 // MARK: - CBPeripheralDelegate
 
 extension ConnectionManager: CBPeripheralDelegate {
-    func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        guard error == nil,
-              let service = peripheral.services?.first(where: { $0.uuid == Self.serviceUUID }) else {
-            connLogger.error("Service discovery failed: \(error?.localizedDescription ?? "service not found")")
-            centralManager.cancelPeripheralConnection(peripheral)
-            return
-        }
-        peripheral.discoverCharacteristics([Self.psmCharUUID], for: service)
-    }
-
-    func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService,
-                     error: Error?) {
-        guard error == nil,
-              let char = service.characteristics?.first(where: { $0.uuid == Self.psmCharUUID }) else {
-            connLogger.error("Characteristic discovery failed: \(error?.localizedDescription ?? "char not found")")
-            centralManager.cancelPeripheralConnection(peripheral)
-            return
-        }
-        peripheral.readValue(for: char)
-    }
-
-    func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic,
-                     error: Error?) {
-        guard error == nil,
-              characteristic.uuid == Self.psmCharUUID,
-              let data = characteristic.value,
-              data.count == 2 else {
-            connLogger.error("PSM read failed: \(error?.localizedDescription ?? "invalid data")")
-            centralManager.cancelPeripheralConnection(peripheral)
-            return
-        }
-
-        let psm = UInt16(data[0]) << 8 | UInt16(data[1])  // big-endian
-        connLogger.info("Read PSM: \(psm)")
-        state = .openingL2CAP(peripheral)
-        peripheral.openL2CAPChannel(CBL2CAPPSM(psm))
-    }
-
     func peripheral(_ peripheral: CBPeripheral, didOpen channel: CBL2CAPChannel?, error: Error?) {
         guard let channel = channel, error == nil else {
-            connLogger.error("L2CAP open failed: \(error?.localizedDescription ?? "nil channel")")
+            debugLog("[CM] L2CAP open failed: \(error?.localizedDescription ?? "nil channel")")
             centralManager.cancelPeripheralConnection(peripheral)
             return
         }
@@ -233,7 +223,7 @@ extension ConnectionManager: CBPeripheralDelegate {
         l2capChannel = channel
         state = .connected(peripheral)
         reconnectDelay = 1.0  // reset backoff on successful connection
-        connLogger.info("L2CAP channel established")
+        debugLog("[CM] L2CAP channel established, handing off to delegate")
 
         // Schedule streams on main RunLoop (avoids threading pitfalls on macOS)
         channel.inputStream.schedule(in: .main, forMode: .common)

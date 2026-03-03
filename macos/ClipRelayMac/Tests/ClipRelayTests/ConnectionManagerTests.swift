@@ -58,12 +58,12 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertEqual(extracted, Data(tag))
     }
 
-    func testExtractTagFromDataWithExtraTrailingBytes() {
-        // 2-byte company ID + 8-byte tag + extra bytes (should still work)
+    func testExtractTagFromDataWithPSMTrailing() {
+        // 2-byte company ID + 8-byte tag + 2-byte PSM (full format)
         let companyID: [UInt8] = [0xFF, 0xFF]
         let tag: [UInt8] = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22]
-        let extra: [UInt8] = [0x99, 0x88]
-        let mfgData = Data(companyID + tag + extra)
+        let psm: [UInt8] = [0x00, 0x83]  // PSM 131
+        let mfgData = Data(companyID + tag + psm)
 
         let extracted = ConnectionManager.extractDeviceTag(from: mfgData)
         XCTAssertNotNil(extracted)
@@ -119,11 +119,50 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertEqual(ConnectionManager.serviceUUID.uuidString, "C10B0001-1234-5678-9ABC-DEF012345678")
     }
 
-    func testPSMCharUUIDIsCorrect() {
-        XCTAssertEqual(ConnectionManager.psmCharUUID.uuidString, "C10B0010-1234-5678-9ABC-DEF012345678")
-    }
-
     func testMaxReconnectDelay() {
         XCTAssertEqual(ConnectionManager.maxReconnectDelay, 30.0)
+    }
+
+    // MARK: - PSM Extraction Tests
+
+    func testExtractPSMFromValidData() {
+        // 2-byte company ID + 8-byte tag + 2-byte PSM (big-endian)
+        let data = Data([0xFF, 0xFF,
+                         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                         0x00, 0x83])  // PSM = 131
+        let psm = ConnectionManager.extractPSM(from: data)
+        XCTAssertNotNil(psm)
+        XCTAssertEqual(psm, 131)
+    }
+
+    func testExtractPSMFromLargerValue() {
+        let data = Data([0xFF, 0xFF,
+                         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                         0x01, 0x01])  // PSM = 257
+        let psm = ConnectionManager.extractPSM(from: data)
+        XCTAssertNotNil(psm)
+        XCTAssertEqual(psm, 257)
+    }
+
+    func testExtractPSMReturnsNilForShortData() {
+        // Only 11 bytes (need at least 12)
+        let data = Data([0xFF, 0xFF,
+                         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                         0x00])
+        XCTAssertNil(ConnectionManager.extractPSM(from: data))
+    }
+
+    func testExtractPSMReturnsNilForZeroPSM() {
+        let data = Data([0xFF, 0xFF,
+                         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                         0x00, 0x00])  // PSM = 0 (invalid)
+        XCTAssertNil(ConnectionManager.extractPSM(from: data))
+    }
+
+    func testExtractPSMReturnsNilForTagOnlyData() {
+        // 10 bytes = company ID + tag, no PSM
+        let data = Data([0xFF, 0xFF,
+                         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08])
+        XCTAssertNil(ConnectionManager.extractPSM(from: data))
     }
 }

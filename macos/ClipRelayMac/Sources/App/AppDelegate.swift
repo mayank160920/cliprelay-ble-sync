@@ -4,6 +4,20 @@ import os
 
 private let appLogger = Logger(subsystem: "com.cliprelay", category: "App")
 
+/// Simple file logger for debugging when NSLog / os.Logger output is not accessible.
+private func debugLog(_ message: String) {
+    let ts = ISO8601DateFormatter().string(from: Date())
+    let line = "[\(ts)] \(message)\n"
+    let path = "/tmp/cliprelay-debug.log"
+    if let fh = FileHandle(forWritingAtPath: path) {
+        fh.seekToEndOfFile()
+        fh.write(Data(line.utf8))
+        fh.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: Data(line.utf8))
+    }
+}
+
 enum PairingProgressAction: Equatable {
     case none
     case cancelPending
@@ -157,6 +171,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cancelPendingPairingFlow(removePendingDevice: true)
     }
 
+    private func completePairing(token: String) {
+        awaitingNewPairingConnection = false
+
+        // Update the pending device's display name from "Pending pairing…"
+        let devices = pairingManager.loadDevices()
+        if let pending = devices.first(where: { $0.token == token && $0.displayName.contains("Pending") }) {
+            pairingManager.removeDevice(token: token)
+            let updated = PairedDevice(
+                token: pending.token,
+                displayName: "Android",
+                datePaired: pending.datePaired
+            )
+            pairingManager.addDevice(updated)
+        }
+
+        pairingWindowController.close()
+        refreshTrustedPeersMenu()
+        appLogger.info("[App] Pairing completed for token")
+    }
+
     private func cancelPendingPairingFlow(removePendingDevice: Bool) {
         awaitingNewPairingConnection = false
         if removePendingDevice {
@@ -267,7 +301,13 @@ extension AppDelegate: ConnectionManagerDelegate {
             self?.updateConnectedPeersMenu(token: token, deviceName: deviceName, connected: true)
         }
 
+        debugLog("[App] L2CAP session started for device: \(deviceName)")
         appLogger.info("[App] L2CAP session started for device: \(deviceName, privacy: .private)")
+
+        // Complete pairing if we were waiting for a new connection
+        if awaitingNewPairingConnection {
+            completePairing(token: token)
+        }
     }
 
     func connectionManager(_ manager: ConnectionManager, didDisconnectFor token: String) {
@@ -312,6 +352,7 @@ extension AppDelegate: ConnectionManagerDelegate {
 
 extension AppDelegate: SessionDelegate {
     func sessionDidBecomeReady(_ session: Session) {
+        debugLog("[App] Session handshake complete — ready for transfers")
         appLogger.info("[App] Session handshake complete — ready for transfers")
 
         // If there's a pending clipboard payload, send it

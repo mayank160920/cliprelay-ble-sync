@@ -21,7 +21,6 @@ import com.cliprelay.R
 import com.cliprelay.ble.Advertiser
 import com.cliprelay.ble.L2capServer
 import com.cliprelay.ble.L2capServerCallback
-import com.cliprelay.ble.PsmGattServer
 import com.cliprelay.crypto.E2ECrypto
 import com.cliprelay.debug.DebugSmokeProbe
 import com.cliprelay.permissions.BlePermissions
@@ -57,7 +56,6 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
     // BLE components
     private var advertiser: Advertiser? = null
     private var l2capServer: L2capServer? = null
-    private var psmGattServer: PsmGattServer? = null
 
     // Active L2CAP session (at most one)
     @Volatile
@@ -128,23 +126,14 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         loadPairingState()
 
-        if (intent?.action == ACTION_UNPAIR) {
-            handleUnpairRequest()
-            return START_STICKY
-        }
-
-        ensureBleComponentsState()
-
         when (intent?.action) {
-            ACTION_PUSH_TEXT -> {
-                val text = intent.getStringExtra(EXTRA_TEXT)
-                if (!text.isNullOrBlank()) {
-                    executor.execute {
-                        pushPlainTextToMac(text)
-                    }
-                }
+            ACTION_UNPAIR -> {
+                handleUnpairRequest()
+                return START_STICKY
             }
             ACTION_RELOAD_PAIRING -> {
+                // RELOAD_PAIRING handles its own BLE lifecycle — skip the
+                // general ensureBleComponentsState() to avoid a double-start.
                 if (encryptionKey == null) {
                     if (bleStarted) {
                         stopBleComponents()
@@ -153,13 +142,20 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
                 } else if (BlePermissions.hasRequiredRuntimePermissions(this)) {
                     if (bleStarted) {
                         stopBleComponents(broadcastDisconnected = false)
-                        ensureBleComponentsState()
-                    } else {
-                        ensureBleComponentsState()
                     }
+                    ensureBleComponentsState()
                 } else {
                     Log.w(TAG, "BLE runtime permissions missing; stopping BLE components")
                     stopBleComponents()
+                }
+                return START_STICKY
+            }
+            ACTION_PUSH_TEXT -> {
+                val text = intent.getStringExtra(EXTRA_TEXT)
+                if (!text.isNullOrBlank()) {
+                    executor.execute {
+                        pushPlainTextToMac(text)
+                    }
                 }
             }
             ACTION_QUERY_CONNECTION -> {
@@ -169,6 +165,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
             }
         }
 
+        ensureBleComponentsState()
         return START_STICKY
     }
 
@@ -214,6 +211,8 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
             return
         }
 
+        val serviceUUID = java.util.UUID.fromString("c10b0001-1234-5678-9abc-def012345678")
+
         val started = runCatching {
             // 1. Start L2CAP server, get PSM
             val l2cap = L2capServer(adapter, this)
@@ -221,29 +220,23 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
             l2capServer = l2cap
             Log.w(TAG, "L2CAP server started on PSM $psm")
 
-            // 2. Start minimal GATT server with PSM characteristic
-            val psmGatt = PsmGattServer(this, bluetoothManager, psm)
-            psmGatt.start()
-            psmGattServer = psmGatt
-            Log.w(TAG, "PSM GATT server started")
-
-            // 3. Start advertising (reuse existing Advertiser)
-            val adv = Advertiser(this, ParcelUuid(PsmGattServer.SERVICE_UUID))
+            // 2. Start advertising with PSM embedded in manufacturer data
+            //    (No GATT server needed — Mac reads PSM from scan response)
+            val adv = Advertiser(this, ParcelUuid(serviceUUID))
+            adv.psm = psm
             adv.deviceTag = encryptionKey?.let {
                 val token = pairingStore.loadToken()
                 if (token != null) E2ECrypto.deviceTag(token) else null
             }
             adv.start()
             advertiser = adv
-            Log.w(TAG, "BLE advertising started (deviceTag=${advertiser?.deviceTag?.let { it.joinToString("") { b -> "%02x".format(b) } } ?: "null"})")
+            Log.w(TAG, "BLE advertising started (psm=$psm, deviceTag=${advertiser?.deviceTag?.let { it.joinToString("") { b -> "%02x".format(b) } } ?: "null"})")
 
             true
         }.getOrElse { error ->
             bleStarted = false
             advertiser?.stop()
             advertiser = null
-            psmGattServer?.stop()
-            psmGattServer = null
             l2capServer?.stop()
             l2capServer = null
             if (error is SecurityException) {
@@ -272,8 +265,6 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         // Stop BLE stack
         advertiser?.stop()
         advertiser = null
-        psmGattServer?.stop()
-        psmGattServer = null
         l2capServer?.stop()
         l2capServer = null
 
