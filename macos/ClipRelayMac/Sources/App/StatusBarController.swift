@@ -130,7 +130,9 @@ final class StatusBarController {
             keyEquivalent: ""
         )
         launchItem.target = self
-        launchItem.state = (isLaunchAtLoginEnabled?() == true) ? .on : .off
+        if isLaunchAtLoginEnabled?() == true {
+            launchItem.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "enabled")
+        }
         menu.addItem(launchItem)
 
         menu.addItem(NSMenuItem(
