@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import os
 
 private let appLogger = Logger(subsystem: "com.cliprelay", category: "App")
@@ -29,7 +30,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let notificationManager = ReceiveNotificationManager()
     private let pairingWindowController = PairingWindowController()
 
+    // Old BLE manager — kept until Task 7 removes it
     private var bleManager: BLECentralManager?
+
+    // New L2CAP components
+    private var connectionManager: ConnectionManager!
+    private var activeSession: Session?
+    private var sessionThread: Thread?
+    private var connectedToken: String?
+    private var pendingClipboardPayload: Data?
+
+    // Dedup: hash of the last clipboard we received from the remote side
+    private var lastReceivedHash: String?
+
     private var clipboardMonitor: ClipboardMonitor?
     private var lastConnectedPeerIDs: Set<UUID> = []
     private var pairingBaselineConnectedPeerIDs: Set<UUID> = []
@@ -43,69 +56,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.startPairing()
         }
         statusBarController.onForgetDeviceRequested = { [weak self] token in
-            self?.bleManager?.forgetDevice(token: token)
+            self?.forgetDevice(token: token)
         }
         pairingWindowController.onDidClose = { [weak self] in
             self?.handlePairingWindowClosed()
         }
 
-        bleManager = BLECentralManager(clipboardWriter: clipboardWriter, pairingManager: pairingManager)
-        bleManager?.onClipboardReceived = { [weak self] text in
-            self?.notificationManager.postClipboardReceived(text: text)
-            DispatchQueue.main.async {
-                self?.statusBarController.flashSyncIndicator()
-            }
-        }
-        bleManager?.onClipboardSent = { [weak self] in
-            DispatchQueue.main.async {
-                self?.statusBarController.flashSyncIndicator()
+        // Set up ConnectionManager (L2CAP)
+        connectionManager = ConnectionManager()
+        connectionManager.delegate = self
+        connectionManager.pairedDevices = { [weak self] in
+            guard let self else { return [] }
+            return self.pairingManager.loadDevices().compactMap { device in
+                guard let tag = self.pairingManager.deviceTag(for: device.token) else { return nil }
+                return (token: device.token, tag: tag)
             }
         }
 
+        // Clipboard monitor triggers outbound sends via Session
         clipboardMonitor = ClipboardMonitor { [weak self] text in
-            self?.bleManager?.sendClipboardText(text)
+            self?.onClipboardChange(text)
         }
 
-        bleManager?.onConnectedPeersChanged = { [weak self] peers in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                let connectedPeerIDs = Set(peers.map(\.id))
-                self.lastConnectedPeerIDs = connectedPeerIDs
-                self.statusBarController.setConnectedPeers(peers)
-
-                let action = pairingProgressAction(
-                    awaitingNewPairingConnection: self.awaitingNewPairingConnection,
-                    isPairingWindowShowing: self.pairingWindowController.isShowing,
-                    connectedPeerIDs: connectedPeerIDs,
-                    pairingBaselineConnectedPeerIDs: self.pairingBaselineConnectedPeerIDs
-                )
-
-                switch action {
-                case .none:
-                    return
-                case .cancelPending:
-                    self.cancelPendingPairingFlow(removePendingDevice: true)
-                case .completePairing:
-                    self.awaitingNewPairingConnection = false
-                    self.bleManager?.setPendingPairingToken(nil)
-                    self.pairingWindowController.close()
-                }
-            }
-        }
-        bleManager?.onTrustedPeersChanged = { [weak self] peers in
-            DispatchQueue.main.async {
-                self?.statusBarController.setTrustedPeers(peers)
-            }
-        }
-
-        bleManager?.start()
+        // Start scanning and monitoring
+        // ConnectionManager starts scanning automatically when Bluetooth powers on
         clipboardMonitor?.start()
+
+        // Refresh trusted device list in the menu
+        refreshTrustedPeersMenu()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         clipboardMonitor?.stop()
-        bleManager?.stop()
+        activeSession?.close()
+        connectionManager?.disconnect()
     }
+
+    // MARK: - Clipboard Change → Session
+
+    private func onClipboardChange(_ text: String) {
+        guard let token = connectedToken else {
+            appLogger.debug("[App] Clipboard changed but no connected device")
+            return
+        }
+        guard let key = pairingManager.encryptionKey(for: token) else {
+            appLogger.error("[App] No encryption key for connected token")
+            return
+        }
+        guard let plainData = text.data(using: .utf8) else { return }
+        guard let encrypted = try? E2ECrypto.seal(plainData, key: key) else {
+            appLogger.error("[App] Failed to encrypt clipboard data")
+            return
+        }
+
+        // Dedup: skip if we just received this exact text from the remote side
+        let hash = SHA256.hash(data: Data(text.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        if hash == lastReceivedHash {
+            appLogger.debug("[App] Skipping send — this clipboard was just received from remote")
+            return
+        }
+
+        // Retain for retry after reconnect
+        pendingClipboardPayload = encrypted
+
+        // Try to send immediately
+        if let session = activeSession {
+            session.sendClipboard(encrypted)
+            appLogger.info("[App] Queued clipboard for send (\(encrypted.count) bytes)")
+        } else {
+            appLogger.info("[App] Clipboard cached for send on reconnect (\(encrypted.count) bytes)")
+        }
+    }
+
+    // MARK: - Pairing
 
     private func startPairing() {
         pairingManager.removePendingDevices()
@@ -123,13 +148,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         pairingBaselineConnectedPeerIDs = lastConnectedPeerIDs
         awaitingNewPairingConnection = true
-        bleManager?.setPendingPairingToken(token)
 
         guard let uri = pairingManager.pairingURI(token: token) else { return }
         pairingWindowController.showPairingQR(uri: uri)
 
         // Refresh trusted list to show pending device
-        bleManager?.notifyAllState()
+        refreshTrustedPeersMenu()
     }
 
     private func handlePairingWindowClosed() {
@@ -142,8 +166,221 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if removePendingDevice {
             pairingManager.removePendingDevices()
         }
-        bleManager?.setPendingPairingToken(nil)
-        bleManager?.notifyAllState()
+        refreshTrustedPeersMenu()
     }
 
+    // MARK: - Device Management
+
+    private func forgetDevice(token: String) {
+        pairingManager.removeDevice(token: token)
+
+        // If the forgotten device is currently connected, disconnect
+        if connectedToken == token {
+            activeSession?.close()
+            activeSession = nil
+            connectedToken = nil
+            connectionManager?.disconnect()
+            statusBarController.updateConnectionState(connected: false, deviceName: nil)
+        }
+
+        refreshTrustedPeersMenu()
+
+        // Restart scanning to pick up remaining paired devices
+        connectionManager?.startScanning()
+    }
+
+    // MARK: - Menu Helpers
+
+    private func refreshTrustedPeersMenu() {
+        let devices = pairingManager.loadDevices()
+        let peers = devices.map { device in
+            PeerSummary(
+                id: deviceStableID(token: device.token),
+                description: device.displayName,
+                token: device.token,
+                deviceTagHex: formattedDeviceTagHex(token: device.token)
+            )
+        }
+        .sorted { $0.description.localizedCaseInsensitiveCompare($1.description) == .orderedAscending }
+
+        statusBarController.setTrustedPeers(peers)
+    }
+
+    private func deviceStableID(token: String) -> UUID {
+        // Derive a stable UUID from the token for UI consistency
+        let hash = SHA256.hash(data: Data(token.utf8))
+        let bytes = Array(hash)
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
+    }
+
+    private func formattedDeviceTagHex(token: String) -> String? {
+        guard let data = pairingManager.deviceTag(for: token) else { return nil }
+        let hex = data.prefix(4).map { String(format: "%02X", $0) }.joined()
+        return stride(from: 0, to: hex.count, by: 4).map { i in
+            let start = hex.index(hex.startIndex, offsetBy: i)
+            let end = hex.index(start, offsetBy: min(4, hex.count - i))
+            return String(hex[start..<end])
+        }.joined(separator: " ")
+    }
+}
+
+// MARK: - ConnectionManagerDelegate
+
+extension AppDelegate: ConnectionManagerDelegate {
+    func connectionManager(_ manager: ConnectionManager, didEstablishChannel inputStream: InputStream,
+                           outputStream: OutputStream, for token: String) {
+        let deviceName = pairingManager.loadDevices().first(where: { $0.token == token })?.displayName ?? "Android"
+        connectedToken = token
+
+        // Remove streams from the main RunLoop — Session runs them on its own background thread
+        inputStream.remove(from: .main, forMode: .common)
+        outputStream.remove(from: .main, forMode: .common)
+
+        // Create session (Mac = initiator)
+        let session = Session(inputStream: inputStream, outputStream: outputStream,
+                              isInitiator: true, delegate: self)
+        activeSession = session
+
+        // Run session on background thread
+        let thread = Thread { [weak self] in
+            // Schedule streams on this thread's RunLoop
+            let runLoop = RunLoop.current
+            inputStream.schedule(in: runLoop, forMode: .common)
+            outputStream.schedule(in: runLoop, forMode: .common)
+
+            session.performHandshake()
+            session.listenForMessages()
+
+            // If we get here, the session has ended
+            DispatchQueue.main.async {
+                self?.handleSessionEnded()
+            }
+        }
+        thread.name = "L2CAP-Session"
+        thread.start()
+        sessionThread = thread
+
+        // Update UI
+        DispatchQueue.main.async { [weak self] in
+            self?.statusBarController.updateConnectionState(connected: true, deviceName: deviceName)
+            self?.updateConnectedPeersMenu(token: token, deviceName: deviceName, connected: true)
+        }
+
+        appLogger.info("[App] L2CAP session started for device: \(deviceName, privacy: .private)")
+    }
+
+    func connectionManager(_ manager: ConnectionManager, didDisconnectFor token: String) {
+        appLogger.info("[App] Connection lost for token")
+
+        activeSession?.close()
+        activeSession = nil
+        connectedToken = nil
+        sessionThread = nil
+
+        DispatchQueue.main.async { [weak self] in
+            self?.statusBarController.updateConnectionState(connected: false, deviceName: nil)
+            self?.updateConnectedPeersMenu(token: token, deviceName: nil, connected: false)
+        }
+
+        // ConnectionManager handles reconnect automatically via scheduleReconnect
+    }
+
+    private func handleSessionEnded() {
+        // The session listen loop exited — could be error or clean close
+        // ConnectionManager will detect the BLE disconnect and trigger reconnect
+        activeSession = nil
+        sessionThread = nil
+    }
+
+    private func updateConnectedPeersMenu(token: String, deviceName: String?, connected: Bool) {
+        if connected, let deviceName {
+            let peer = PeerSummary(
+                id: deviceStableID(token: token),
+                description: deviceName,
+                token: token,
+                deviceTagHex: formattedDeviceTagHex(token: token)
+            )
+            statusBarController.setConnectedPeers([peer])
+        } else {
+            statusBarController.setConnectedPeers([])
+        }
+    }
+}
+
+// MARK: - SessionDelegate
+
+extension AppDelegate: SessionDelegate {
+    func sessionDidBecomeReady(_ session: Session) {
+        appLogger.info("[App] Session handshake complete — ready for transfers")
+
+        // If there's a pending clipboard payload, send it
+        if let pending = pendingClipboardPayload {
+            session.sendClipboard(pending)
+            appLogger.info("[App] Sent pending clipboard after reconnect (\(pending.count) bytes)")
+        }
+    }
+
+    func session(_ session: Session, didReceiveClipboard encryptedBlob: Data, hash: String) {
+        guard let token = connectedToken else {
+            appLogger.error("[App] Received clipboard but no connected token")
+            return
+        }
+        guard let key = pairingManager.encryptionKey(for: token) else {
+            appLogger.error("[App] No encryption key for token")
+            return
+        }
+        guard let plaintext = try? E2ECrypto.open(encryptedBlob, key: key) else {
+            appLogger.error("[App] Failed to decrypt received clipboard")
+            return
+        }
+        guard let text = String(data: plaintext, encoding: .utf8) else {
+            appLogger.error("[App] Received data is not valid UTF-8")
+            return
+        }
+
+        // Track hash for dedup (prevent echo back)
+        let textHash = SHA256.hash(data: Data(text.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        lastReceivedHash = textHash
+
+        appLogger.info("[App] Received clipboard from Android (\(text.count) chars)")
+
+        DispatchQueue.main.async { [weak self] in
+            self?.clipboardWriter.writeText(text)
+            self?.notificationManager.postClipboardReceived(text: text)
+            self?.statusBarController.flashSyncIndicator()
+        }
+    }
+
+    func session(_ session: Session, didCompleteTransfer hash: String) {
+        appLogger.info("[App] Transfer complete (hash: \(hash.prefix(8))...)")
+        pendingClipboardPayload = nil  // transfer succeeded, clear pending
+
+        DispatchQueue.main.async { [weak self] in
+            self?.statusBarController.flashSyncIndicator()
+        }
+    }
+
+    func session(_ session: Session, didFailWithError error: Error) {
+        appLogger.error("[App] Session error: \(error.localizedDescription)")
+        activeSession = nil
+        sessionThread = nil
+
+        DispatchQueue.main.async { [weak self] in
+            self?.statusBarController.updateConnectionState(connected: false, deviceName: nil)
+            self?.statusBarController.setConnectedPeers([])
+        }
+
+        // ConnectionManager handles reconnect automatically
+    }
+
+    func session(_ session: Session, alreadyHasHash hash: String) -> Bool {
+        return hash == lastReceivedHash
+    }
 }
