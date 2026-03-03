@@ -1,0 +1,1 @@
+Sync your clipboard between Android and Mac over Bluetooth.
