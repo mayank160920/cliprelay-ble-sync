@@ -76,7 +76,12 @@ final class Session {
             }
             delegate?.sessionDidBecomeReady(self)
         } catch {
-            closeQuietly()
+            lock.lock()
+            guard !_closed else { lock.unlock(); return }
+            _closed = true
+            lock.unlock()
+            inputStream.close()
+            outputStream.close()
             delegate?.session(self, didFailWithError: error)
         }
     }
@@ -84,7 +89,7 @@ final class Session {
     private func initiatorHandshake() throws {
         // Send HELLO
         let hello = Message(type: .hello, payload: helloPayload())
-        writeMessage(hello)
+        try writeMessage(hello)
 
         // Wait for WELCOME
         let welcome = try readWithTimeout(handshakeTimeoutSeconds)
@@ -104,7 +109,7 @@ final class Session {
 
         // Send WELCOME
         let welcome = Message(type: .welcome, payload: helloPayload())
-        writeMessage(welcome)
+        try writeMessage(welcome)
     }
 
     // MARK: - Message Loop
@@ -130,10 +135,13 @@ final class Session {
                 }
             }
         } catch {
-            if !closed {
-                closeQuietly()
-                delegate?.session(self, didFailWithError: error)
-            }
+            lock.lock()
+            guard !_closed else { lock.unlock(); return }
+            _closed = true
+            lock.unlock()
+            inputStream.close()
+            outputStream.close()
+            delegate?.session(self, didFailWithError: error)
         }
     }
 
@@ -172,7 +180,7 @@ final class Session {
         ]
         let offerData = try JSONSerialization.data(withJSONObject: offerJSON)
         let offer = Message(type: .offer, payload: offerData)
-        writeMessage(offer)
+        try writeMessage(offer)
 
         // Wait for ACCEPT or DONE
         let response = try readWithTimeout(transferTimeoutSeconds)
@@ -180,7 +188,7 @@ final class Session {
         case .accept:
             // Send PAYLOAD
             let payload = Message(type: .payload, payload: encryptedBlob)
-            writeMessage(payload)
+            try writeMessage(payload)
 
             // Wait for DONE
             let done = try readWithTimeout(transferTimeoutSeconds)
@@ -211,13 +219,13 @@ final class Session {
             let doneJSON: [String: Any] = ["hash": hash, "ok": true]
             let doneData = try JSONSerialization.data(withJSONObject: doneJSON)
             let done = Message(type: .done, payload: doneData)
-            writeMessage(done)
+            try writeMessage(done)
             return
         }
 
         // Send ACCEPT
         let accept = Message(type: .accept, payload: Data())
-        writeMessage(accept)
+        try writeMessage(accept)
 
         // Wait for PAYLOAD
         let payload = try readWithTimeout(transferTimeoutSeconds)
@@ -238,20 +246,17 @@ final class Session {
         let doneJSON: [String: Any] = ["hash": hash, "ok": true]
         let doneData = try JSONSerialization.data(withJSONObject: doneJSON)
         let done = Message(type: .done, payload: doneData)
-        writeMessage(done)
+        try writeMessage(done)
     }
 
     // MARK: - Lifecycle
 
     /// Close the session. Can be called from any thread.
     func close() {
-        guard !closed else { return }
-        closed = true
-        closeQuietly()
-    }
-
-    private func closeQuietly() {
-        closed = true
+        lock.lock()
+        guard !_closed else { lock.unlock(); return }
+        _closed = true
+        lock.unlock()
         inputStream.close()
         outputStream.close()
     }
@@ -273,9 +278,9 @@ final class Session {
         throw SessionError.sessionClosed
     }
 
-    private func writeMessage(_ message: Message) {
+    private func writeMessage(_ message: Message) throws {
         let encoded = MessageCodec.encode(message)
-        encoded.withUnsafeBytes { (rawBuffer: UnsafeRawBufferPointer) in
+        try encoded.withUnsafeBytes { (rawBuffer: UnsafeRawBufferPointer) in
             guard let baseAddress = rawBuffer.baseAddress else { return }
             let pointer = baseAddress.assumingMemoryBound(to: UInt8.self)
             var totalWritten = 0
@@ -284,7 +289,9 @@ final class Session {
                     pointer.advanced(by: totalWritten),
                     maxLength: encoded.count - totalWritten
                 )
-                if written <= 0 { break }
+                if written <= 0 {
+                    throw SessionError.protocolError("Write failed")
+                }
                 totalWritten += written
             }
         }

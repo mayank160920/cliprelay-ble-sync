@@ -60,8 +60,11 @@ class Session(
             }
             callback.onSessionReady()
         } catch (e: Exception) {
-            closeQuietly()
-            callback.onSessionError(e)
+            if (closed.compareAndSet(false, true)) {
+                try { input.close() } catch (_: Exception) {}
+                try { output.close() } catch (_: Exception) {}
+                callback.onSessionError(e)
+            }
         }
     }
 
@@ -121,8 +124,9 @@ class Session(
                 }
             }
         } catch (e: Exception) {
-            if (!closed.get()) {
-                closeQuietly()
+            if (closed.compareAndSet(false, true)) {
+                try { input.close() } catch (_: Exception) {}
+                try { output.close() } catch (_: Exception) {}
                 callback.onSessionError(e)
             }
         }
@@ -251,14 +255,9 @@ class Session(
      */
     fun close() {
         if (closed.compareAndSet(false, true)) {
-            closeQuietly()
+            try { input.close() } catch (_: Exception) {}
+            try { output.close() } catch (_: Exception) {}
         }
-    }
-
-    private fun closeQuietly() {
-        closed.set(true)
-        try { input.close() } catch (_: Exception) {}
-        try { output.close() } catch (_: Exception) {}
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
