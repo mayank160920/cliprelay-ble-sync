@@ -305,6 +305,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
             isInitiator = false,
             this  // SessionCallback
         )
+        session.localName = android.os.Build.MODEL
         activeSession = session
 
         sessionThread = Thread({

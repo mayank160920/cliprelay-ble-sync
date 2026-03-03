@@ -32,6 +32,13 @@ class Session(
 ) {
     private val closed = AtomicBoolean(false)
 
+    /** Local device name sent during handshake. Set before calling performHandshake(). */
+    var localName: String? = null
+
+    /** Remote device name received during handshake. Available after onSessionReady. */
+    var remoteName: String? = null
+        private set
+
     /** Queue of outbound clipboard transfers (encrypted blob). */
     private val outboundQueue = LinkedBlockingQueue<ByteArray>()
 
@@ -312,8 +319,12 @@ class Session(
         throw ProtocolException("Session closed while waiting for message")
     }
 
-    private fun helloPayload(): ByteArray =
-        """{"version":1}""".toByteArray()
+    private fun helloPayload(): ByteArray {
+        val json = JSONObject()
+        json.put("version", 1)
+        localName?.let { json.put("name", it) }
+        return json.toString().toByteArray()
+    }
 
     private fun validateVersion(payload: ByteArray) {
         val json = JSONObject(String(payload))
@@ -321,6 +332,7 @@ class Session(
         if (version != 1) {
             throw ProtocolException("Unsupported protocol version: $version")
         }
+        remoteName = if (json.has("name")) json.getString("name") else null
     }
 
     companion object {

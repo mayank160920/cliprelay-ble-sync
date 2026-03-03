@@ -46,6 +46,12 @@ final class Session {
     var handshakeTimeoutSeconds: TimeInterval = 5.0
     var transferTimeoutSeconds: TimeInterval = 30.0
 
+    /// Local device name sent during handshake. Set before calling performHandshake().
+    var localName: String?
+
+    /// Remote device name received during handshake. Available after sessionDidBecomeReady.
+    private(set) var remoteName: String?
+
     private let lock = NSLock()
     private var _closed = false
     private var closed: Bool {
@@ -300,7 +306,11 @@ final class Session {
     }
 
     private func helloPayload() -> Data {
-        Data(#"{"version":1}"#.utf8)
+        var obj: [String: Any] = ["version": 1]
+        if let name = localName {
+            obj["name"] = name
+        }
+        return (try? JSONSerialization.data(withJSONObject: obj)) ?? Data(#"{"version":1}"#.utf8)
     }
 
     private func validateVersion(_ payload: Data) throws {
@@ -311,6 +321,7 @@ final class Session {
         guard version == 1 else {
             throw SessionError.versionMismatch(version)
         }
+        remoteName = json["name"] as? String
     }
 
     /// Compute SHA-256 hex digest of data.

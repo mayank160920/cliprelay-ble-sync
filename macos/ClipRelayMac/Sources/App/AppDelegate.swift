@@ -204,7 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cancelPendingPairingFlow(removePendingDevice: true)
     }
 
-    private func completePairing(token: String) {
+    private func completePairing(token: String, deviceName: String?) {
         awaitingNewPairingConnection = false
 
         // Update the pending device's display name from "Pending pairing…"
@@ -213,7 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pairingManager.removeDevice(token: token)
             let updated = PairedDevice(
                 token: pending.token,
-                displayName: "Android",
+                displayName: deviceName ?? "Android",
                 datePaired: pending.datePaired
             )
             pairingManager.addDevice(updated)
@@ -297,7 +297,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension AppDelegate: ConnectionManagerDelegate {
     func connectionManager(_ manager: ConnectionManager, didEstablishChannel inputStream: InputStream,
                            outputStream: OutputStream, for token: String) {
-        let deviceName = pairingManager.loadDevices().first(where: { $0.token == token })?.displayName ?? "Android"
         connectedToken = token
 
         // Remove streams from the main RunLoop — Session runs them on its own background thread
@@ -307,6 +306,7 @@ extension AppDelegate: ConnectionManagerDelegate {
         // Create session (Mac = initiator)
         let session = Session(inputStream: inputStream, outputStream: outputStream,
                               isInitiator: true, delegate: self)
+        session.localName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
         activeSession = session
 
         // Run session on background thread
@@ -328,19 +328,10 @@ extension AppDelegate: ConnectionManagerDelegate {
         thread.start()
         sessionThread = thread
 
-        // Update UI
-        DispatchQueue.main.async { [weak self] in
-            self?.statusBarController.updateConnectionState(connected: true, deviceName: deviceName)
-            self?.updateConnectedPeersMenu(token: token, deviceName: deviceName, connected: true)
-        }
+        // UI update deferred to sessionDidBecomeReady (after handshake exchanges device name)
 
-        debugLog("[App] L2CAP session started for device: \(deviceName)")
-        appLogger.info("[App] L2CAP session started for device: \(deviceName, privacy: .private)")
-
-        // Complete pairing if we were waiting for a new connection
-        if awaitingNewPairingConnection {
-            completePairing(token: token)
-        }
+        debugLog("[App] L2CAP channel established, starting handshake")
+        appLogger.info("[App] L2CAP channel established, starting handshake")
     }
 
     func connectionManager(_ manager: ConnectionManager, didDisconnectFor token: String) {
@@ -385,8 +376,37 @@ extension AppDelegate: ConnectionManagerDelegate {
 
 extension AppDelegate: SessionDelegate {
     func sessionDidBecomeReady(_ session: Session) {
-        debugLog("[App] Session handshake complete — ready for transfers")
-        appLogger.info("[App] Session handshake complete — ready for transfers")
+        let remoteName = session.remoteName
+        debugLog("[App] Session handshake complete — remote device: \(remoteName ?? "unknown")")
+        appLogger.info("[App] Session handshake complete — remote device: \(remoteName ?? "unknown", privacy: .private)")
+
+        // Update stored device name from handshake and refresh UI
+        if let token = connectedToken {
+            // Update the persisted device name if the remote sent one
+            if let name = remoteName {
+                let devices = pairingManager.loadDevices()
+                if let existing = devices.first(where: { $0.token == token && $0.displayName != name }) {
+                    pairingManager.removeDevice(token: token)
+                    let updated = PairedDevice(token: existing.token, displayName: name, datePaired: existing.datePaired)
+                    pairingManager.addDevice(updated)
+                }
+            }
+
+            let deviceName = remoteName
+                ?? pairingManager.loadDevices().first(where: { $0.token == token })?.displayName
+                ?? "Android"
+
+            DispatchQueue.main.async { [weak self] in
+                self?.statusBarController.updateConnectionState(connected: true, deviceName: deviceName)
+                self?.updateConnectedPeersMenu(token: token, deviceName: deviceName, connected: true)
+
+                // Complete pairing if we were waiting for a new connection
+                if self?.awaitingNewPairingConnection == true {
+                    self?.completePairing(token: token, deviceName: remoteName)
+                    self?.refreshTrustedPeersMenu()
+                }
+            }
+        }
 
         // If there's a pending clipboard payload, send it
         if let pending = pendingClipboardPayload {
