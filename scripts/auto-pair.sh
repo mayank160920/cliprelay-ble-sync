@@ -37,9 +37,9 @@ done
 # Generate token if not provided (64 hex chars = 32 random bytes)
 if [[ -z "$TOKEN" ]]; then
     TOKEN=$(openssl rand -hex 32)
-    echo "Generated token: $TOKEN"
+    echo "Generated token: ...${TOKEN:56:8}"
 else
-    echo "Using provided token: $TOKEN"
+    echo "Using provided token: ...${TOKEN:56:8}"
 fi
 
 # Validate token format
@@ -106,6 +106,6 @@ echo "Android app started."
 
 echo
 echo "==> Pairing complete!"
-echo "Token: $TOKEN"
+echo "Token (tail): ...${TOKEN:56:8}"
 echo
 echo "Both apps should now discover each other via BLE and establish an L2CAP connection."
