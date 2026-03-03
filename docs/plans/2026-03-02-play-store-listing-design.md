@@ -29,7 +29,7 @@ Captured from connected Android device:
 
 ## Directory Structure
 
-Place everything in `android/app/src/main/play/` for Gradle Play Publisher:
+Place everything in `googleplay/` for Gradle Play Publisher:
 
 ```
 play/

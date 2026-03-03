@@ -4,25 +4,25 @@
 
 **Goal:** Create all assets, metadata, and documentation needed for a production-quality Play Store listing.
 
-**Architecture:** Generate the 512x512 store icon from existing SVG sources using `rsvg-convert` + Python/Pillow. Capture phone screenshots from the connected Android device via `adb screencap`. Create the feature graphic with Python/Pillow. Place everything in the Gradle Play Publisher directory structure (`android/app/src/main/play/`).
+**Architecture:** Generate the 512x512 store icon from existing SVG sources using `rsvg-convert` + Python/Pillow. Capture phone screenshots from the connected Android device via `adb screencap`. Create the feature graphic with Python/Pillow. Place everything in a `googleplay/` directory at the project root.
 
 **Tech Stack:** Python 3 + Pillow (image compositing), rsvg-convert (SVG rendering), adb (screenshots), Gradle Play Publisher (directory conventions)
 
 ---
 
-### Task 1: Scaffold the play/ directory structure
+### Task 1: Scaffold the googleplay/ directory structure
 
 **Files:**
-- Create: `android/app/src/main/play/contact-email.txt`
-- Create: `android/app/src/main/play/listings/en-US/title.txt`
-- Create: `android/app/src/main/play/listings/en-US/short-description.txt`
-- Create: `android/app/src/main/play/listings/en-US/full-description.txt`
+- Create: `googleplay/contact-email.txt`
+- Create: `googleplay/listings/en-US/title.txt`
+- Create: `googleplay/listings/en-US/short-description.txt`
+- Create: `googleplay/listings/en-US/full-description.txt`
 - Create directories for graphics (icon/, featureGraphic/, phoneScreenshots/)
 
 **Step 1: Create the directory tree**
 
 ```bash
-mkdir -p android/app/src/main/play/listings/en-US/graphics/{icon,featureGraphic,phoneScreenshots}
+mkdir -p googleplay/listings/en-US/graphics/{icon,featureGraphic,phoneScreenshots}
 ```
 
 **Step 2: Write contact-email.txt**
@@ -31,7 +31,7 @@ mkdir -p android/app/src/main/play/listings/en-US/graphics/{icon,featureGraphic,
 info@cliprelay.org
 ```
 
-Save to `android/app/src/main/play/contact-email.txt`.
+Save to `googleplay/contact-email.txt`.
 
 **Step 3: Write title.txt**
 
@@ -39,7 +39,7 @@ Save to `android/app/src/main/play/contact-email.txt`.
 ClipRelay
 ```
 
-Save to `android/app/src/main/play/listings/en-US/title.txt`.
+Save to `googleplay/listings/en-US/title.txt`.
 
 **Step 4: Write short-description.txt**
 
@@ -51,7 +51,7 @@ Sync your clipboard between Android and Mac over Bluetooth.
 
 (60 chars — within limit.)
 
-Save to `android/app/src/main/play/listings/en-US/short-description.txt`.
+Save to `googleplay/listings/en-US/short-description.txt`.
 
 **Step 5: Write full-description.txt**
 
@@ -80,12 +80,12 @@ FEATURES
 • Auto-start on boot to keep your devices connected
 ```
 
-Save to `android/app/src/main/play/listings/en-US/full-description.txt`.
+Save to `googleplay/listings/en-US/full-description.txt`.
 
 **Step 6: Commit**
 
 ```bash
-git add android/app/src/main/play/
+git add googleplay/
 git commit -m "feat(android): scaffold Play Store listing metadata"
 ```
 
@@ -95,7 +95,7 @@ git commit -m "feat(android): scaffold Play Store listing metadata"
 
 **Files:**
 - Read: `design/logo-android-foreground.svg` (the logo mark on transparent bg)
-- Create: `android/app/src/main/play/listings/en-US/graphics/icon/icon.png`
+- Create: `googleplay/listings/en-US/graphics/icon/icon.png`
 
 The Play Store icon should match what users see on their home screen: the logo mark on the aqua (#00FFD5) background.
 
@@ -121,13 +121,13 @@ result = Image.alpha_composite(bg, fg)
 
 # Convert to RGB (Play Store requires no alpha)
 result = result.convert('RGB')
-result.save('android/app/src/main/play/listings/en-US/graphics/icon/icon.png')
+result.save('googleplay/listings/en-US/graphics/icon/icon.png')
 ```
 
 **Step 3: Verify dimensions**
 
 ```bash
-python3 -c "from PIL import Image; img = Image.open('android/app/src/main/play/listings/en-US/graphics/icon/icon.png'); print(img.size)"
+python3 -c "from PIL import Image; img = Image.open('googleplay/listings/en-US/graphics/icon/icon.png'); print(img.size)"
 ```
 
 Expected: `(512, 512)`
@@ -139,7 +139,7 @@ Read the generated PNG to verify it looks correct.
 **Step 5: Commit**
 
 ```bash
-git add android/app/src/main/play/listings/en-US/graphics/icon/
+git add googleplay/listings/en-US/graphics/icon/
 git commit -m "feat(android): add 512x512 Play Store icon"
 ```
 
@@ -148,7 +148,7 @@ git commit -m "feat(android): add 512x512 Play Store icon"
 ### Task 3: Capture phone screenshots
 
 **Files:**
-- Create: `android/app/src/main/play/listings/en-US/graphics/phoneScreenshots/1.png` through `4.png`
+- Create: `googleplay/listings/en-US/graphics/phoneScreenshots/1.png` through `4.png`
 
 **Prerequisites:** Android device connected (`adb get-state` returns "device"), ClipRelay debug APK installed.
 
@@ -160,7 +160,7 @@ If the app is paired, unpair first. Then capture:
 adb shell am force-stop com.cliprelay
 adb shell am start -n com.cliprelay/.ui.MainActivity
 sleep 2
-adb exec-out screencap -p > android/app/src/main/play/listings/en-US/graphics/phoneScreenshots/1.png
+adb exec-out screencap -p > googleplay/listings/en-US/graphics/phoneScreenshots/1.png
 ```
 
 Visually verify the screenshot shows the unpaired home screen.
@@ -170,7 +170,7 @@ Visually verify the screenshot shows the unpaired home screen.
 Navigate to the QR scanner (tap "Pair with Mac" or equivalent button):
 
 ```bash
-adb exec-out screencap -p > android/app/src/main/play/listings/en-US/graphics/phoneScreenshots/2.png
+adb exec-out screencap -p > googleplay/listings/en-US/graphics/phoneScreenshots/2.png
 ```
 
 Visually verify it shows the QR scanner UI.
@@ -180,7 +180,7 @@ Visually verify it shows the QR scanner UI.
 Re-pair with the Mac if needed so the app shows the connected/syncing state:
 
 ```bash
-adb exec-out screencap -p > android/app/src/main/play/listings/en-US/graphics/phoneScreenshots/3.png
+adb exec-out screencap -p > googleplay/listings/en-US/graphics/phoneScreenshots/3.png
 ```
 
 Visually verify it shows the connected state with clipboard sync.
@@ -190,7 +190,7 @@ Visually verify it shows the connected state with clipboard sync.
 Navigate to settings:
 
 ```bash
-adb exec-out screencap -p > android/app/src/main/play/listings/en-US/graphics/phoneScreenshots/4.png
+adb exec-out screencap -p > googleplay/listings/en-US/graphics/phoneScreenshots/4.png
 ```
 
 Visually verify it shows the settings screen.
@@ -198,7 +198,7 @@ Visually verify it shows the settings screen.
 **Step 5: Commit**
 
 ```bash
-git add android/app/src/main/play/listings/en-US/graphics/phoneScreenshots/
+git add googleplay/listings/en-US/graphics/phoneScreenshots/
 git commit -m "feat(android): add Play Store phone screenshots"
 ```
 
@@ -209,7 +209,7 @@ git commit -m "feat(android): add Play Store phone screenshots"
 **Files:**
 - Read: `design/BRAND.md` (brand colors and typography)
 - Read: `design/logo-full-dark.svg` (dark theme logo)
-- Create: `android/app/src/main/play/listings/en-US/graphics/featureGraphic/feature.png`
+- Create: `googleplay/listings/en-US/graphics/featureGraphic/feature.png`
 
 The feature graphic is a 1024x500 branded banner. Dark background (#0A0A0F) with the logo mark centered-left and "ClipRelay" + tagline text to the right. Aqua accent color.
 
@@ -253,13 +253,13 @@ draw.text((text_x, 175), "ClipRelay", fill=AQUA, font=title_font)
 draw.text((text_x, 260), "Clipboard sync over Bluetooth.", fill=TEXT_COLOR, font=tagline_font)
 draw.text((text_x, 300), "No cloud. No servers. Just paste.", fill=DIM_COLOR, font=tagline_font)
 
-img.save('android/app/src/main/play/listings/en-US/graphics/featureGraphic/feature.png')
+img.save('googleplay/listings/en-US/graphics/featureGraphic/feature.png')
 ```
 
 **Step 3: Verify dimensions**
 
 ```bash
-python3 -c "from PIL import Image; img = Image.open('android/app/src/main/play/listings/en-US/graphics/featureGraphic/feature.png'); print(img.size)"
+python3 -c "from PIL import Image; img = Image.open('googleplay/listings/en-US/graphics/featureGraphic/feature.png'); print(img.size)"
 ```
 
 Expected: `(1024, 500)`
@@ -271,7 +271,7 @@ Read the generated PNG. Iterate on font sizes, positioning, or copy if it doesn'
 **Step 5: Commit**
 
 ```bash
-git add android/app/src/main/play/listings/en-US/graphics/featureGraphic/
+git add googleplay/listings/en-US/graphics/featureGraphic/
 git commit -m "feat(android): add Play Store feature graphic"
 ```
 
@@ -335,21 +335,21 @@ git commit -m "docs: add Play Store Data Safety questionnaire answers"
 **Step 1: Verify directory structure**
 
 ```bash
-find android/app/src/main/play -type f | sort
+find googleplay -type f | sort
 ```
 
 Expected output:
 ```
-android/app/src/main/play/contact-email.txt
-android/app/src/main/play/listings/en-US/full-description.txt
-android/app/src/main/play/listings/en-US/graphics/featureGraphic/feature.png
-android/app/src/main/play/listings/en-US/graphics/icon/icon.png
-android/app/src/main/play/listings/en-US/graphics/phoneScreenshots/1.png
-android/app/src/main/play/listings/en-US/graphics/phoneScreenshots/2.png
-android/app/src/main/play/listings/en-US/graphics/phoneScreenshots/3.png
-android/app/src/main/play/listings/en-US/graphics/phoneScreenshots/4.png
-android/app/src/main/play/listings/en-US/short-description.txt
-android/app/src/main/play/listings/en-US/title.txt
+googleplay/contact-email.txt
+googleplay/listings/en-US/full-description.txt
+googleplay/listings/en-US/graphics/featureGraphic/feature.png
+googleplay/listings/en-US/graphics/icon/icon.png
+googleplay/listings/en-US/graphics/phoneScreenshots/1.png
+googleplay/listings/en-US/graphics/phoneScreenshots/2.png
+googleplay/listings/en-US/graphics/phoneScreenshots/3.png
+googleplay/listings/en-US/graphics/phoneScreenshots/4.png
+googleplay/listings/en-US/short-description.txt
+googleplay/listings/en-US/title.txt
 ```
 
 **Step 2: Verify all images meet Play Store requirements**
@@ -357,8 +357,8 @@ android/app/src/main/play/listings/en-US/title.txt
 ```python
 from PIL import Image
 checks = {
-    "icon": ("android/app/src/main/play/listings/en-US/graphics/icon/icon.png", (512, 512)),
-    "feature": ("android/app/src/main/play/listings/en-US/graphics/featureGraphic/feature.png", (1024, 500)),
+    "icon": ("googleplay/listings/en-US/graphics/icon/icon.png", (512, 512)),
+    "feature": ("googleplay/listings/en-US/graphics/featureGraphic/feature.png", (1024, 500)),
 }
 for name, (path, expected) in checks.items():
     img = Image.open(path)
@@ -368,7 +368,7 @@ for name, (path, expected) in checks.items():
 
 # Screenshots must be 320-3840px on each side, 16:9 or 9:16
 import os
-ss_dir = "android/app/src/main/play/listings/en-US/graphics/phoneScreenshots"
+ss_dir = "googleplay/listings/en-US/graphics/phoneScreenshots"
 for f in sorted(os.listdir(ss_dir)):
     img = Image.open(os.path.join(ss_dir, f))
     w, h = img.size
@@ -379,9 +379,9 @@ for f in sorted(os.listdir(ss_dir)):
 **Step 3: Verify text lengths**
 
 ```bash
-echo "Short desc: $(wc -c < android/app/src/main/play/listings/en-US/short-description.txt) chars (max 80)"
-echo "Full desc: $(wc -c < android/app/src/main/play/listings/en-US/full-description.txt) chars (max 4000)"
-echo "Title: $(wc -c < android/app/src/main/play/listings/en-US/title.txt) chars (max 30)"
+echo "Short desc: $(wc -c < googleplay/listings/en-US/short-description.txt) chars (max 80)"
+echo "Full desc: $(wc -c < googleplay/listings/en-US/full-description.txt) chars (max 4000)"
+echo "Title: $(wc -c < googleplay/listings/en-US/title.txt) chars (max 30)"
 ```
 
 All must be within limits.
