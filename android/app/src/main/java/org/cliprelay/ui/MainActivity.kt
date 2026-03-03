@@ -58,7 +58,12 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK) {
-            viewModel.onPaired()
+            val token = PairingStore(this).loadToken()
+            val deviceTag = token?.let { t ->
+                val hex = E2ECrypto.deviceTag(t).take(4).joinToString("") { "%02X".format(it) }
+                hex.chunked(4).joinToString(" ")
+            }
+            viewModel.onPaired(deviceTag)
             val reloadIntent = Intent(this, ClipRelayService::class.java)
             reloadIntent.action = ClipRelayService.ACTION_RELOAD_PAIRING
             startServiceSafely(reloadIntent)

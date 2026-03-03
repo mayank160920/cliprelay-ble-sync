@@ -34,8 +34,8 @@ class MainViewModel : ViewModel() {
         _autoClearEnabled.value = autoClearEnabled
     }
 
-    fun onPaired() {
-        _state.value = AppState.Searching()
+    fun onPaired(deviceTag: String? = null) {
+        _state.value = AppState.Searching(deviceTag = deviceTag)
         _showBurst.value = true
     }
 
