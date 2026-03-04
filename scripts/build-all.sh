@@ -127,11 +127,21 @@ PLIST
 
   # ── Sign with entitlements + hardened runtime ──
   local entitlements_path="$ROOT_DIR/macos/ClipRelayMac/Resources/ClipRelay.entitlements"
-  echo "Signing with entitlements and hardened runtime..."
-  codesign --force --sign - \
-      --entitlements "$entitlements_path" \
-      --options runtime \
-      "$app_dir"
+  local dev_id="Developer ID Application: Christian Theilemann (B66YFKPUA8)"
+  if security find-identity -v -p codesigning 2>/dev/null | grep -q "$dev_id"; then
+    echo "Signing with Developer ID + hardened runtime..."
+    codesign --force --deep --sign "$dev_id" \
+        --entitlements "$entitlements_path" \
+        --options runtime \
+        --timestamp \
+        "$app_dir"
+  else
+    echo "Developer ID not found, signing ad-hoc with hardened runtime..."
+    codesign --force --sign - \
+        --entitlements "$entitlements_path" \
+        --options runtime \
+        "$app_dir"
+  fi
   echo "Code signing complete."
 
   echo "macOS app bundle created: $app_dir"
