@@ -416,9 +416,9 @@ private fun MainCard(
                         drawLine(c, Offset(cx + sW / 2f, legTop), Offset(cx + sW / 2f, bodyTop), shackleStroke)
                     }
                 }
-                if (isConnected) {
+                if (isPaired) {
                     Text(
-                        text = "End-to-end encrypted",
+                        text = if (isConnected) "End-to-end encrypted" else "Paired",
                         fontSize = 11.sp,
                         color = Teal.copy(alpha = 0.4f),
                         fontWeight = FontWeight.Medium
