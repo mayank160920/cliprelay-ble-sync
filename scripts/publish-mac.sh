@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_DIR="$DIST_DIR/ClipRelay.app"
 DMG_PATH="$DIST_DIR/ClipRelay.dmg"
+NOTARY_DIR="$DIST_DIR/notary"
 ENTITLEMENTS="$ROOT_DIR/macos/ClipRelayMac/Resources/ClipRelay.entitlements"
 SIGNING_IDENTITY="Developer ID Application: Christian Theilemann (B66YFKPUA8)"
 KEYCHAIN_PROFILE="ClipRelay"
@@ -15,6 +16,12 @@ usage() {
 Usage: ./scripts/publish-mac.sh [options]
 
 Signs, packages into DMG, notarizes, and staples the macOS app.
+
+Modes:
+  (default)           Sign, create DMG, submit for notarization
+  --staple <id>       Check status and staple a previous submission
+  --status [id]       Check notarization status (latest if no id given)
+  --list              List all tracked submissions
 
 Prerequisites:
   - Run ./scripts/build-all.sh --mac-only first
@@ -26,11 +33,118 @@ Options:
 EOF
 }
 
+# ── --list: show tracked submissions ──
+
+cmd_list() {
+  if [[ ! -d "$NOTARY_DIR" ]] || [ -z "$(ls -A "$NOTARY_DIR" 2>/dev/null)" ]; then
+    echo "No tracked submissions in dist/notary/"
+    exit 0
+  fi
+  echo "Tracked submissions:"
+  for dir in "$NOTARY_DIR"/*/; do
+    id=$(basename "$dir")
+    if [[ -f "$dir/info.txt" ]]; then
+      date=$(grep "^date:" "$dir/info.txt" | cut -d' ' -f2-)
+      echo "  $id  ($date)"
+    else
+      echo "  $id"
+    fi
+  done
+}
+
+# ── --status: check notarization status ──
+
+cmd_status() {
+  local id="$1"
+  if [[ -z "$id" ]]; then
+    # Find most recent submission
+    if [[ ! -d "$NOTARY_DIR" ]]; then
+      echo "No tracked submissions." >&2
+      exit 1
+    fi
+    id=$(ls -t "$NOTARY_DIR" | head -1)
+    if [[ -z "$id" ]]; then
+      echo "No tracked submissions." >&2
+      exit 1
+    fi
+  fi
+  echo "Checking status for $id..."
+  xcrun notarytool info "$id" --keychain-profile "$KEYCHAIN_PROFILE"
+}
+
+# ── --staple: staple a previously notarized submission ──
+
+cmd_staple() {
+  local id="$1"
+  local sub_dir="$NOTARY_DIR/$id"
+
+  if [[ ! -d "$sub_dir" ]]; then
+    echo "Submission $id not found in dist/notary/" >&2
+    echo "Run --list to see tracked submissions." >&2
+    exit 1
+  fi
+
+  local dmg="$sub_dir/ClipRelay.dmg"
+  if [[ ! -f "$dmg" ]]; then
+    echo "DMG not found: $dmg" >&2
+    exit 1
+  fi
+
+  echo "==> Checking notarization status for $id..."
+  local status
+  status=$(xcrun notarytool info "$id" --keychain-profile "$KEYCHAIN_PROFILE" 2>&1)
+  echo "$status"
+
+  if ! echo "$status" | grep -q "status: Accepted"; then
+    echo ""
+    echo "Submission is not yet accepted. Cannot staple." >&2
+    exit 1
+  fi
+
+  echo ""
+  echo "==> Stapling notarization ticket"
+  xcrun stapler staple "$dmg"
+
+  echo "==> Copying stapled DMG to dist/ClipRelay.dmg"
+  cp "$dmg" "$DMG_PATH"
+
+  echo "==> Verification"
+  xcrun stapler validate "$DMG_PATH"
+
+  echo ""
+  echo "==> Staple complete: $DMG_PATH"
+}
+
+# ── Parse arguments ──
+
+MODE="submit"
+STAPLE_ID=""
+STATUS_ID=""
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)
       usage
       exit 0
+      ;;
+    --list)
+      MODE="list"
+      shift
+      ;;
+    --status)
+      MODE="status"
+      STATUS_ID="${2:-}"
+      [[ -n "$STATUS_ID" ]] && shift
+      shift
+      ;;
+    --staple)
+      MODE="staple"
+      STAPLE_ID="${2:-}"
+      if [[ -z "$STAPLE_ID" ]]; then
+        echo "Usage: --staple <submission-id>" >&2
+        exit 1
+      fi
+      shift 2
       ;;
     *)
       echo "Unknown option: $1" >&2
@@ -39,6 +153,14 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+case "$MODE" in
+  list)   cmd_list; exit 0 ;;
+  status) cmd_status "$STATUS_ID"; exit 0 ;;
+  staple) cmd_staple "$STAPLE_ID"; exit 0 ;;
+esac
+
+# ── Submit mode: sign, create DMG, submit for notarization ──
 
 # ── Preflight checks ──
 
@@ -79,26 +201,32 @@ hdiutil create -volname "ClipRelay" \
     "$DMG_PATH"
 echo "DMG created: $DMG_PATH"
 
-# ── 3. Notarize ──
+# ── 3. Submit for notarization ──
 
-echo "==> Submitting to Apple notarization (this may take a few minutes)..."
-xcrun notarytool submit "$DMG_PATH" \
-    --keychain-profile "$KEYCHAIN_PROFILE" \
-    --wait
+echo "==> Submitting to Apple notarization..."
+SUBMIT_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
+    --keychain-profile "$KEYCHAIN_PROFILE" 2>&1)
+echo "$SUBMIT_OUTPUT"
 
-# ── 4. Staple ──
+SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | grep "^  id:" | head -1 | awk '{print $2}')
 
-echo "==> Stapling notarization ticket"
-xcrun stapler staple "$APP_DIR"
-xcrun stapler staple "$DMG_PATH"
+if [[ -z "$SUBMISSION_ID" ]]; then
+  echo "Failed to parse submission ID from output." >&2
+  exit 1
+fi
 
-# ── 5. Verify ──
+# ── 4. Save DMG to notary tracking directory ──
 
-echo "==> Verification"
-echo "--- App signature ---"
-codesign --verify --deep --strict --verbose=2 "$APP_DIR" 2>&1
-echo "--- DMG staple ---"
-xcrun stapler validate "$DMG_PATH"
+mkdir -p "$NOTARY_DIR/$SUBMISSION_ID"
+cp "$DMG_PATH" "$NOTARY_DIR/$SUBMISSION_ID/ClipRelay.dmg"
+cat > "$NOTARY_DIR/$SUBMISSION_ID/info.txt" <<EOF
+id: $SUBMISSION_ID
+date: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+EOF
 
 echo ""
-echo "==> Publish complete: $DMG_PATH"
+echo "==> Submitted! DMG saved to dist/notary/$SUBMISSION_ID/"
+echo ""
+echo "Next steps:"
+echo "  Check status:  ./scripts/publish-mac.sh --status $SUBMISSION_ID"
+echo "  Staple when ready:  ./scripts/publish-mac.sh --staple $SUBMISSION_ID"
