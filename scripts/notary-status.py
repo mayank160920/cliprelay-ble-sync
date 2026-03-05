@@ -1,16 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["textual"]
+# ///
 """TUI dashboard for Apple Notary submission status."""
 
-import subprocess
-import sys
-
-try:
-    import textual  # noqa: F401
-except ImportError:
-    print("Installing textual...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "textual"])
-
 import json
+import subprocess
 import re
 from datetime import datetime
 
