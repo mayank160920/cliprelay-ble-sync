@@ -8,7 +8,8 @@
 import json
 import subprocess
 import re
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, DataTable, Static, RichLog
@@ -16,6 +17,9 @@ from textual.containers import Vertical
 
 KEYCHAIN_PROFILE = "ClipRelay"
 REFRESH_SECONDS = 30
+ROOT_DIR = Path(__file__).resolve().parent.parent
+NOTARY_DIR = ROOT_DIR / "dist" / "notary"
+GITHUB_REPO = "geekflyer/cliprelay"
 
 STATUS_STYLE = {
     "Accepted": "[green]Accepted[/]",
@@ -74,11 +78,50 @@ def fmt_date(iso: str) -> str:
         return iso
 
 
+def fmt_elapsed(iso: str) -> str:
+    """Return a human-readable elapsed time like '2h 15m' or '3d 4h'."""
+    try:
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        delta = datetime.now(timezone.utc) - dt
+        total_seconds = int(delta.total_seconds())
+        if total_seconds < 0:
+            return "just now"
+        days, remainder = divmod(total_seconds, 86400)
+        hours, remainder = divmod(remainder, 3600)
+        minutes = remainder // 60
+        if days > 0:
+            return f"{days}d {hours}h"
+        if hours > 0:
+            return f"{hours}h {minutes}m"
+        return f"{minutes}m"
+    except Exception:
+        return ""
+
+
+def read_notary_info(submission_id: str) -> dict:
+    """Read info.txt from the notary tracking directory for a submission."""
+    info_path = NOTARY_DIR / submission_id / "info.txt"
+    info = {}
+    if info_path.is_file():
+        for line in info_path.read_text().splitlines():
+            m = re.match(r"(\w+):\s*(.*)", line)
+            if m:
+                info[m.group(1)] = m.group(2)
+    return info
+
+
+def git_commit_url(git_hash: str) -> str:
+    return f"https://github.com/{GITHUB_REPO}/commit/{git_hash}"
+
+
 def enrich_entries(entries: list[dict]) -> None:
     for entry in entries:
+        sid = entry.get("id", "")
+        # Load local tracking info (git hash, etc.)
+        entry["_notary_info"] = read_notary_info(sid)
         status = entry.get("status", "")
         if status in ("Accepted", "Rejected", "Invalid"):
-            log = fetch_log(entry["id"])
+            log = fetch_log(sid)
             if log:
                 entry["_log"] = log
 
@@ -124,7 +167,7 @@ class NotaryApp(App):
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
         table.cursor_type = "row"
-        table.add_columns("Date", "Name", "Status", "Summary", "ID")
+        table.add_columns("Date", "Elapsed", "Name", "Status", "Summary", "Git", "ID")
         self.load_data()
         self.set_interval(REFRESH_SECONDS, self.load_data)
 
@@ -137,11 +180,16 @@ class NotaryApp(App):
             status = e.get("status", "?")
             styled = STATUS_STYLE.get(status, status)
             summary = self._get_summary(e)
+            elapsed = fmt_elapsed(e.get("createdDate", ""))
+            git_hash = e.get("_notary_info", {}).get("git", "")
+            git_short = git_hash[:10] if git_hash else "[dim]—[/]"
             table.add_row(
                 fmt_date(e.get("createdDate", "")),
+                elapsed,
                 e.get("name", "?"),
                 styled,
                 summary,
+                git_short,
                 e.get("id", "?")[:12] + "...",
             )
         now = datetime.now().strftime("%H:%M:%S")
@@ -175,7 +223,12 @@ class NotaryApp(App):
 
         detail.write(f"[bold]Submission:[/] {sid}")
         detail.write(f"[bold]Name:[/] {entry.get('name', '?')}  [bold]Status:[/] {STATUS_STYLE.get(status, status)}")
-        detail.write(f"[bold]Created:[/] {entry.get('createdDate', '?')}")
+        created = entry.get("createdDate", "?")
+        elapsed = fmt_elapsed(created)
+        detail.write(f"[bold]Created:[/] {created}  ({elapsed} ago)")
+        git_hash = entry.get("_notary_info", {}).get("git", "")
+        if git_hash:
+            detail.write(f"[bold]Git:[/] {git_commit_url(git_hash)}")
 
         log = entry.get("_log")
         if log is None and status != "In Progress":
