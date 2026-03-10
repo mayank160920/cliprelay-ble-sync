@@ -37,6 +37,10 @@ class MainActivity : AppCompatActivity() {
                     val name = intent.getStringExtra(ClipRelayService.EXTRA_DEVICE_NAME)
                     viewModel.onConnectionChanged(connected, name)
                 }
+                ClipRelayService.ACTION_PAIRING_COMPLETE -> {
+                    val deviceTag = intent.getStringExtra(ClipRelayService.EXTRA_DEVICE_TAG)
+                    viewModel.onPaired(deviceTag)
+                }
                 ClipRelayService.ACTION_CLIPBOARD_TRANSFER -> {
                     val fromMac = intent.getBooleanExtra(ClipRelayService.EXTRA_FROM_MAC, true)
                     viewModel.onClipboardTransfer(fromMac)
@@ -58,15 +62,9 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK) {
-            val secret = PairingStore(this).loadSharedSecret()
-            val deviceTag = secret?.let { s ->
-                val hex = E2ECrypto.deviceTag(s).take(4).joinToString("") { "%02X".format(it) }
-                hex.chunked(4).joinToString(" ")
-            }
-            viewModel.onPaired(deviceTag)
-            val reloadIntent = Intent(this, ClipRelayService::class.java)
-            reloadIntent.action = ClipRelayService.ACTION_RELOAD_PAIRING
-            startServiceSafely(reloadIntent)
+            // Don't compute device tag here — ECDH handshake hasn't completed yet.
+            // The service will broadcast ACTION_PAIRING_COMPLETE with the tag.
+            viewModel.onPaired(deviceTag = null)
         }
     }
 
@@ -123,6 +121,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         val filter = IntentFilter(ClipRelayService.ACTION_CONNECTION_STATE).also {
+            it.addAction(ClipRelayService.ACTION_PAIRING_COMPLETE)
             it.addAction(ClipRelayService.ACTION_CLIPBOARD_TRANSFER)
         }
         ContextCompat.registerReceiver(

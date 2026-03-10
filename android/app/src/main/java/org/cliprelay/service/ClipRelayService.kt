@@ -45,9 +45,11 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         const val ACTION_CONNECTION_STATE = "org.cliprelay.action.CONNECTION_STATE"
         const val ACTION_QUERY_CONNECTION = "org.cliprelay.action.QUERY_CONNECTION"
         const val ACTION_CLIPBOARD_TRANSFER = "org.cliprelay.action.CLIPBOARD_TRANSFER"
+        const val ACTION_PAIRING_COMPLETE = "org.cliprelay.action.PAIRING_COMPLETE"
         const val EXTRA_TEXT = "extra_text"
         const val EXTRA_CONNECTED = "extra_connected"
         const val EXTRA_DEVICE_NAME = "extra_device_name"
+        const val EXTRA_DEVICE_TAG = "extra_device_tag"
         const val EXTRA_FROM_MAC = "extra_from_mac"
 
         const val PREFS_NAME = "cliprelay_state"
@@ -449,6 +451,16 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         if (remoteName != null) {
             saveConnectedDeviceName(remoteName)
         }
+
+        // Broadcast pairing complete with device tag for UI
+        val deviceTagHex = E2ECrypto.deviceTag(sharedSecret).take(4)
+            .joinToString("") { "%02X".format(it) }
+            .chunked(4).joinToString(" ")
+        val pairingIntent = Intent(ACTION_PAIRING_COMPLETE)
+        pairingIntent.setPackage(packageName)
+        pairingIntent.putExtra(EXTRA_DEVICE_TAG, deviceTagHex)
+        pairingIntent.putExtra(EXTRA_DEVICE_NAME, remoteName)
+        sendBroadcast(pairingIntent)
     }
 
     // ── Outbound (Android → Mac) ─────────────────────────────────────
