@@ -170,6 +170,11 @@ if [[ ! -d "$APP_DIR" ]]; then
   exit 1
 fi
 
+if ! command -v create-dmg &>/dev/null; then
+  echo "create-dmg not found. Install with: brew install create-dmg" >&2
+  exit 1
+fi
+
 if ! security find-identity -v -p codesigning | grep -q "$SIGNING_IDENTITY"; then
   echo "Signing identity not found: $SIGNING_IDENTITY" >&2
   exit 1
@@ -194,18 +199,25 @@ codesign -dvv "$APP_DIR" 2>&1 | grep -E "Authority|TeamIdentifier"
 
 # ── 2. Create DMG ──
 
-echo "==> Creating DMG with Applications shortcut"
+echo "==> Generating DMG background"
+swift "$ROOT_DIR/scripts/generate-dmg-background.swift"
+
+echo "==> Creating styled DMG with drag-to-install layout"
 rm -f "$DMG_PATH"
-DMG_STAGING="$DIST_DIR/.dmg-staging"
-rm -rf "$DMG_STAGING"
-mkdir -p "$DMG_STAGING"
-cp -R "$APP_DIR" "$DMG_STAGING/"
-ln -s /Applications "$DMG_STAGING/Applications"
-hdiutil create -volname "ClipRelay" \
-    -srcfolder "$DMG_STAGING" \
-    -ov -format UDZO \
-    "$DMG_PATH"
-rm -rf "$DMG_STAGING"
+create-dmg \
+    --volname "ClipRelay" \
+    --volicon "$ROOT_DIR/macos/ClipRelayMac/Resources/AppIcon.icns" \
+    --background "$ROOT_DIR/design/dmg-background.png" \
+    --window-pos 200 120 \
+    --window-size 660 400 \
+    --icon-size 128 \
+    --icon "ClipRelay.app" 165 175 \
+    --app-drop-link 495 175 \
+    --hide-extension "ClipRelay.app" \
+    --no-internet-enable \
+    "$DMG_PATH" \
+    "$APP_DIR" \
+    || test $? -eq 2  # create-dmg returns 2 when skipping deprecated internet-enable
 echo "DMG created: $DMG_PATH"
 
 # ── 3. Submit for notarization ──
