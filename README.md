@@ -1,145 +1,142 @@
-# ClipRelay (clipboard-sync)
+# ClipRelay
 
-Cross-platform clipboard sync between macOS and Android over BLE only.
+Seamless, encrypted clipboard sharing between Mac and Android over Bluetooth.
 
-## What this repo builds
+- **End-to-end encrypted** — AES-256-GCM with keys derived via HKDF from the pairing token
+- **Bluetooth only** — direct BLE transfer, no WiFi or internet needed
+- **No cloud, no servers** — your clipboard data never leaves the connection between your devices
+- **Text only** — up to 100 KiB per transfer
 
-- macOS menu bar app bundle: `dist/ClipRelay.app`
-- Android debug APK: `dist/cliprelay-debug.apk`
+## Download
 
-Both are produced by one script: `scripts/build-all.sh`.
+The easiest way to get ClipRelay is from the official releases:
 
-## Prerequisites
+- **Android** — [Join the beta on Google Play](https://cliprelay.org/beta.html)
+- **Mac** — [Download the DMG](https://cliprelay.org/downloads/ClipRelay.dmg)
 
-### macOS build
+For more details, visit [cliprelay.org](https://cliprelay.org).
 
-- macOS with Xcode Command Line Tools
+## How it works
+
+1. Install ClipRelay on both your Mac and Android device.
+2. Open the Mac app (menu bar icon appears), click "Pair New Device" to show a QR code.
+3. Open the Android app, tap "Pair with Mac", and scan the QR code.
+4. Done — clipboard sharing is automatic:
+   - **Mac to Android:** copy text on Mac, it syncs automatically.
+   - **Android to Mac:** select text on Android, Share → ClipRelay.
+
+## Building from source
+
+### Prerequisites
+
+**macOS app:**
+- macOS with Xcode Command Line Tools (`xcode-select --install`)
 - `swift` available in PATH
 
-Install CLI tools if needed:
-
-```bash
-xcode-select --install
-```
-
-### Android build
-
+**Android app:**
 - JDK 17 or newer
-- Android SDK installed (via Android Studio)
-- `ANDROID_HOME` set (or Android Studio configured)
-- USB debugging enabled on your Android phone (for install via ADB)
+- Android SDK (via Android Studio or standalone)
+- `ANDROID_HOME` set or Android Studio configured
 
-Check Java:
-
-```bash
-java -version
-```
-
-## Build both targets
-
-From repo root:
+### Build
 
 ```bash
+# Build both platforms (debug)
 ./scripts/build-all.sh
-```
 
-Optional:
-
-```bash
+# Build only one platform
 ./scripts/build-all.sh --mac-only
 ./scripts/build-all.sh --android-only
+
+# Release build (requires signing configuration)
+./scripts/build-all.sh --release
 ```
 
-## Run automated tests
+**Output artifacts:**
 
-From repo root:
+| Artifact | Path |
+|----------|------|
+| Mac app | `dist/ClipRelay.app` |
+| Android debug APK | `dist/cliprelay-debug.apk` |
+| Android release AAB | `dist/cliprelay-release.aab` |
+| Android release APK | `dist/cliprelay-release.apk` |
 
-```bash
-./scripts/test-all.sh
-```
+### Install from build
 
-## Run device smoke tests
-
-For real-device BLE verification (macOS host + Android phone, debug builds):
-
-```bash
-./scripts/hardware-smoke-test.sh
-```
-
-Optional device selection:
-
-```bash
-./scripts/hardware-smoke-test.sh --serial <adb-serial>
-```
-
-Connection robustness options:
-
-```bash
-./scripts/hardware-smoke-test.sh --stability-seconds 8
-./scripts/hardware-smoke-test.sh --timeout 90
-./scripts/hardware-smoke-test.sh --m2a-stress-count 25 --m2a-stress-timeout 12
-```
-
-Use `--m2a-stress-count` to run repeated Mac -> Android clipboard transfers in one session.
-This catches intermittent regressions where a single transfer might pass but repeated writes fail.
-
-When a smoke step fails, the script now auto-dumps Android BLE logs, Android probe state,
-and recent macOS ClipRelay logs to speed up root-cause analysis.
-
-By default the script removes the temporary smoke-test pairing from both devices at the end.
-Use `--keep-pairing` if you want to retain that pairing.
-
-## Install and run
-
-### 1) Install the mac app
-
-After build, copy app bundle:
+**Mac:**
 
 ```bash
 cp -R dist/ClipRelay.app /Applications/
-```
-
-Launch:
-
-```bash
 open /Applications/ClipRelay.app
 ```
 
-On first run, macOS may block unsigned app launch. If so:
+On first run, macOS may block an unsigned app. Right-click → Open in Finder, then approve in System Settings → Privacy & Security.
 
-- Right click app in Finder -> Open
-- Approve in System Settings -> Privacy & Security
-
-### 2) Install the Android APK
-
-Connect device with USB debugging enabled, then:
+**Android:**
 
 ```bash
 adb install -r dist/cliprelay-debug.apk
 ```
 
-If ADB is not found, add Android platform-tools to PATH.
+### Release signing (Android)
 
-### 3) Pair devices
+For release builds, configure signing via `android/keystore.properties`:
 
-1. Launch ClipRelay on macOS (menu bar icon appears).
-2. Click the menu bar icon and select "Pair New Device" to display a QR code.
-3. Launch ClipRelay on Android and tap "Pair with Mac".
-4. Scan the QR code with the Android app to complete pairing.
+```properties
+storeFile=../path-to-keystore.jks
+storePassword=...
+keyAlias=...
+keyPassword=...
+```
 
-## Daily usage
+Or set environment variables: `CLIPRELAY_STORE_FILE`, `CLIPRELAY_STORE_PASSWORD`, `CLIPRELAY_KEY_ALIAS`, `CLIPRELAY_KEY_PASSWORD`.
 
-- Mac -> Android: copy text on Mac, it syncs automatically.
-- Android -> Mac: select text on Android, Share -> ClipRelay.
+## Development
 
-## Artifact paths
+### Running tests
 
-- mac app: `dist/ClipRelay.app`
-- android apk: `dist/cliprelay-debug.apk`
+```bash
+# Unit tests (Android + Mac)
+./scripts/test-all.sh
+```
 
-## Notes
+### Hardware smoke tests
 
-- Transport is BLE only (no cloud relay).
-- Content scope is text only.
-- Max payload is 100 KiB.
-- All clipboard data is encrypted with AES-256-GCM using keys derived from the shared pairing token via HKDF.
+For real-device BLE verification (requires a Mac host + Android phone connected via USB):
+
+```bash
+./scripts/hardware-smoke-test.sh
+```
+
+Options:
+
+```bash
+# Target a specific device
+./scripts/hardware-smoke-test.sh --serial <adb-serial>
+
+# Tune connection parameters
+./scripts/hardware-smoke-test.sh --stability-seconds 8
+./scripts/hardware-smoke-test.sh --timeout 90
+
+# Stress test with repeated transfers
+./scripts/hardware-smoke-test.sh --m2a-stress-count 25 --m2a-stress-timeout 12
+
+# Keep the test pairing after the run (removed by default)
+./scripts/hardware-smoke-test.sh --keep-pairing
+```
+
+When a smoke step fails, the script auto-dumps Android BLE logs, probe state, and recent macOS ClipRelay logs.
+
+### Project structure
+
+```
+android/          Android app (Kotlin, Jetpack Compose)
+ClipRelay/        macOS app (Swift)
+website/          Static website (HTML/CSS/JS, hosted on Cloudflare Pages)
+scripts/          Build, test, and publish scripts
+docs/             Design documents and plans
+```
+
+## License
+
+This source code is made available for reference and review purposes. See [LICENSE](LICENSE) for details.
