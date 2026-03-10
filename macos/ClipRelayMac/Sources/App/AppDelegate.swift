@@ -317,6 +317,8 @@ extension AppDelegate: ConnectionManagerDelegate {
 
         guard let privateKey = pairingManager.ephemeralPrivateKey else {
             appLogger.error("[App] Pairing channel established but no ephemeral key")
+            inputStream.close()
+            outputStream.close()
             return
         }
 
