@@ -1,0 +1,8 @@
+{
+  "name": "ClipRelay",
+  "image": "mcr.microsoft.com/devcontainers/java:17",
+  "features": {
+    "ghcr.io/devcontainers/features/android:1": {}
+  },
+  "postCreateCommand": "yes | sdkmanager --licenses || true"
+}
