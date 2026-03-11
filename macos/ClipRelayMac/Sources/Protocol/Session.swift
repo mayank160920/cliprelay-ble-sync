@@ -378,14 +378,17 @@ final class Session {
     private func readWithTimeout(_ timeout: TimeInterval) throws -> Message {
         let deadline = Date().addingTimeInterval(timeout)
         while !closed {
+            try pumpInputStream()
+            if let msg = try tryDecodeMessage() {
+                return msg
+            }
+            
             let remaining = deadline.timeIntervalSinceNow
             if remaining <= 0 {
                 throw SessionError.timeout("Timeout waiting for message (\(timeout)s)")
             }
-            if inputStream.hasBytesAvailable {
-                return try MessageCodec.decode(from: inputStream)
-            }
-            Thread.sleep(forTimeInterval: min(0.01, remaining))
+            // Pump the runloop so CBL2CAPChannel stream events fire
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: min(0.02, remaining)))
         }
         throw SessionError.sessionClosed
     }
