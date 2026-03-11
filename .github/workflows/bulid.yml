@@ -1,0 +1,41 @@
+name: Build ClipRelay
+
+on:
+  # push:
+  #   branches: [ "main" ]
+  workflow_dispatch: # Allows you to trigger it manually
+
+jobs:
+  build:
+    runs-on: macos-14 # Required to build the macOS app
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5.2.0
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Build Both Platforms
+        run: |
+          chmod +x scripts/build-all.sh
+          ./scripts/build-all.sh
+          
+          # Zip the Mac app so it can be uploaded as an artifact
+          cd dist
+          zip -r ClipRelay-Mac.zip ClipRelay.app
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: cliprelay-android
+          path: dist/cliprelay-debug.apk
+
+      - name: Upload Mac App
+        uses: actions/upload-artifact@v4
+        with:
+          name: cliprelay-mac
+          path: dist/ClipRelay-Mac.zip
