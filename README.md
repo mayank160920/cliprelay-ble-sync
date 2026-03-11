@@ -2,7 +2,7 @@
 
 Seamless, encrypted clipboard sharing between Mac and Android over Bluetooth.
 
-- **End-to-end encrypted** — AES-256-GCM with keys derived via HKDF from the pairing token
+- **End-to-end encrypted** — ECDH key exchange (X25519) with AES-256-GCM encryption
 - **Bluetooth only** — direct BLE transfer, no WiFi or internet needed
 - **No cloud, no servers** — your clipboard data never leaves the connection between your devices
 - **Text only** — up to 100 KiB per transfer
