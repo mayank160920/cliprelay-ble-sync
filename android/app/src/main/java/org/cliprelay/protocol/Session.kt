@@ -76,6 +76,7 @@ class Session(
      * Must be called before [listenForMessages].
      */
     fun performHandshake() {
+        startReaderThread()
         try {
             when (val m = mode) {
                 is SessionMode.Normal -> {
@@ -210,6 +211,7 @@ class Session(
 
     /** Start a background thread that blocks on stream reads. */
     private fun startReaderThread() {
+        if (readerThread != null) return
         readerThread = Thread({
             try {
                 while (!closed.get()) {
@@ -337,36 +339,12 @@ class Session(
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
-
+    
     /**
-     * Read a message with timeout. Used during handshake and within transfer flows.
-     * During the listen loop, messages come from the inbound queue instead.
+     * Read a message with timeout.
+     * Always reads from the inbound queue (populated by the blocking reader thread).
      */
     private fun readWithTimeout(timeoutMs: Long): Message {
-        // If the reader thread is running, read from the inbound queue
-        if (readerThread != null) {
-            return readFromQueueWithTimeout(timeoutMs)
-        }
-        // Otherwise (during handshake), read directly from the stream
-        return readDirectWithTimeout(timeoutMs)
-    }
-
-    private fun readDirectWithTimeout(timeoutMs: Long): Message {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (!closed.get()) {
-            val remaining = deadline - System.currentTimeMillis()
-            if (remaining <= 0) {
-                throw ProtocolException("Timeout waiting for message (${timeoutMs}ms)")
-            }
-            if (input.available() > 0) {
-                return MessageCodec.decode(input)
-            }
-            Thread.sleep(10.coerceAtMost(remaining.toInt()).toLong())
-        }
-        throw ProtocolException("Session closed while waiting for message")
-    }
-
-    private fun readFromQueueWithTimeout(timeoutMs: Long): Message {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (!closed.get()) {
             val remaining = deadline - System.currentTimeMillis()
@@ -386,6 +364,7 @@ class Session(
         throw ProtocolException("Session closed while waiting for message")
     }
 
+    
     private fun helloPayload(): ByteArray {
         val json = JSONObject()
         json.put("version", 1)
