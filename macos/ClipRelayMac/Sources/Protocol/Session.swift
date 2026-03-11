@@ -191,6 +191,40 @@ final class Session {
         throw SessionError.protocolError("Mac cannot be pairing responder")
     }
 
+    
+    // MARK: - Message Buffer & Pumping
+    private var inputBuffer = Data()
+
+    private func pumpInputStream() throws {
+        if inputStream.streamStatus == .atEnd || inputStream.streamStatus == .error {
+            throw SessionError.sessionClosed
+        }
+        while inputStream.hasBytesAvailable {
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            let readBytes = inputStream.read(&buffer, maxLength: buffer.count)
+            if readBytes > 0 {
+                inputBuffer.append(contentsOf: buffer[0..<readBytes])
+            } else if readBytes == 0 {
+                throw SessionError.sessionClosed
+            } else {
+                throw SessionError.protocolError("Stream read error")
+            }
+        }
+    }
+
+    private func tryDecodeMessage() throws -> Message? {
+        var offset = 0
+        do {
+            let msg = try MessageCodec.decode(from: inputBuffer, offset: &offset)
+            inputBuffer.removeSubrange(0..<offset)
+            return msg
+        } catch ProtocolError.incompleteHeader, ProtocolError.incompleteBody {
+            return nil
+        } catch {
+            throw error
+        }
+    }
+
     // MARK: - Message Loop
 
     /// Blocking read loop. Call on a dedicated background thread after handshake.
@@ -204,13 +238,12 @@ final class Session {
                     continue
                 }
 
-                // Check if data is available (non-blocking)
-                if inputStream.hasBytesAvailable {
-                    let msg = try MessageCodec.decode(from: inputStream)
+                try pumpInputStream()
+                if let msg = try tryDecodeMessage() {
                     try handleInbound(msg)
                 } else {
-                    // Brief sleep to avoid busy-waiting
-                    Thread.sleep(forTimeInterval: 0.01)
+                    // Pump the runloop so CBL2CAPChannel background stream events fire
+                    RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
                 }
             }
         } catch {
