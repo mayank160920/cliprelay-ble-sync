@@ -3,6 +3,7 @@
 import AppKit
 import Foundation
 import QuartzCore
+import Sparkle
 
 final class StatusBarController {
     var onPairNewDeviceRequested: (() -> Void)?
@@ -12,6 +13,7 @@ final class StatusBarController {
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
+    private let updaterController: SPUStandardUpdaterController
 
     private var connectedPeers: [PeerSummary] = []
     private var trustedPeers: [PeerSummary] = []
@@ -24,7 +26,8 @@ final class StatusBarController {
     private var baseStatusBarImage: NSImage?
     private var syncPulseTimer: Timer?
 
-    init() {
+    init(updaterController: SPUStandardUpdaterController) {
+        self.updaterController = updaterController
         baseStatusBarImage = loadStatusBarIcon()
         updateStatusBarIcon()
         renderMenu()
@@ -141,6 +144,21 @@ final class StatusBarController {
         websiteItem.target = self
         menu.addItem(websiteItem)
 
+        let checkForUpdatesItem = NSMenuItem(title: "Check for Updates\u{2026}", action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "")
+        checkForUpdatesItem.target = updaterController
+        menu.addItem(checkForUpdatesItem)
+
+        let autoUpdateItem = NSMenuItem(
+            title: "Automatically Check for Updates",
+            action: #selector(handleToggleAutoUpdates),
+            keyEquivalent: ""
+        )
+        autoUpdateItem.target = self
+        if updaterController.updater.automaticallyChecksForUpdates {
+            autoUpdateItem.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "enabled")
+        }
+        menu.addItem(autoUpdateItem)
+
         menu.addItem(NSMenuItem.separator())
 
         menu.addItem(NSMenuItem(
@@ -222,9 +240,15 @@ final class StatusBarController {
 
     @objc
     private func handleVisitWebsite() {
-        if let url = URL(string: "https://cliprelay.pages.dev") {
+        if let url = URL(string: "https://cliprelay.org") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    @objc
+    private func handleToggleAutoUpdates() {
+        updaterController.updater.automaticallyChecksForUpdates.toggle()
+        renderMenu()
     }
 
     @objc

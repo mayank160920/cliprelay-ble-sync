@@ -1,0 +1,129 @@
+name: Release macOS
+
+on:
+  push:
+    tags:
+      - 'mac/v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/mac/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Load secrets from 1Password
+        uses: 1Password/load-secrets-action@v3
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          CERTIFICATE_P12: op://cliprelay/macOS Signing Certificate/p12-base64
+          CERTIFICATE_PASSWORD: op://cliprelay/macOS Signing Certificate/password
+          NOTARY_APPLE_ID: op://cliprelay/macOS Notarization/apple-id
+          NOTARY_PASSWORD: op://cliprelay/macOS Notarization/password
+          NOTARY_TEAM_ID: op://cliprelay/macOS Notarization/team-id
+          SPARKLE_PRIVATE_KEY: op://cliprelay/Sparkle Update Signing/private-key
+          SPARKLE_PUBLIC_KEY: op://cliprelay/Sparkle Update Signing/public-key
+
+      - name: Import signing certificate
+        run: |
+          echo "$CERTIFICATE_P12" | base64 --decode > certificate.p12
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import certificate.p12 -k build.keychain -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          rm certificate.p12
+
+      - name: Store notarization credentials
+        run: |
+          xcrun notarytool store-credentials "ClipRelay" \
+            --apple-id "$NOTARY_APPLE_ID" \
+            --password "$NOTARY_PASSWORD" \
+            --team-id "$NOTARY_TEAM_ID"
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Build
+        run: ./scripts/build-all.sh --mac-only
+
+      - name: Sign, notarize, and create DMG
+        run: ./scripts/publish-mac.sh --wait
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git tag -l 'mac/v*' --sort=-v:refname | sed -n '2p' | sed 's|^mac/||')
+          if [[ -n "$PREV_TAG" ]]; then
+            BODY=$(./scripts/changelog.sh --mac "${PREV_TAG}..v${{ steps.version.outputs.version }}")
+          else
+            BODY="- Initial release"
+          fi
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$BODY" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "macOS v${{ steps.version.outputs.version }}"
+          body: ${{ steps.changelog.outputs.body }}
+          files: dist/ClipRelay-${{ steps.version.outputs.version }}.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download Sparkle tools
+        run: |
+          SPARKLE_VERSION="2.9.0"
+          curl -sL "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz" -o /tmp/sparkle.tar.xz
+          mkdir -p /tmp/sparkle-tools
+          tar xf /tmp/sparkle.tar.xz -C /tmp/sparkle-tools
+
+      - name: Generate Sparkle EdDSA signature
+        id: sparkle-sign
+        run: |
+          DMG_SIZE=$(stat -f%z dist/ClipRelay-${{ steps.version.outputs.version }}.dmg)
+          KEY_FILE=$(mktemp)
+          echo "$SPARKLE_PRIVATE_KEY" > "$KEY_FILE"
+          RAW=$(/tmp/sparkle-tools/bin/sign_update dist/ClipRelay-${{ steps.version.outputs.version }}.dmg -f "$KEY_FILE")
+          rm -f "$KEY_FILE"
+          # sign_update outputs: sparkle:edSignature=<base64> length=<n>
+          SIGNATURE=$(echo "$RAW" | sed -E 's/^sparkle:edSignature=//; s/ length=.*//')
+          echo "signature=$SIGNATURE" >> "$GITHUB_OUTPUT"
+          echo "size=$DMG_SIZE" >> "$GITHUB_OUTPUT"
+
+      - name: Compute build metadata
+        id: build-meta
+        run: |
+          echo "build_number=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+          echo "git_hash=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Update appcast.xml
+        run: |
+          ./scripts/update-appcast.sh \
+            --version "${{ steps.version.outputs.version }} (${{ steps.build-meta.outputs.git_hash }})" \
+            --build-number "${{ steps.build-meta.outputs.build_number }}" \
+            --signature "${{ steps.sparkle-sign.outputs.signature }}" \
+            --size "${{ steps.sparkle-sign.outputs.size }}" \
+            --url "https://github.com/geekflyer/cliprelay/releases/download/mac/v${{ steps.version.outputs.version }}/ClipRelay-${{ steps.version.outputs.version }}.dmg"
+
+      - name: Commit updated appcast
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
+          git add sparkle/appcast.xml
+          git commit -m "chore: update Sparkle appcast for v${{ steps.version.outputs.version }}"
+          git push origin main

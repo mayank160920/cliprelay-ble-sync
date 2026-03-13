@@ -3,9 +3,18 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MAC_VERSION=$(cat "$ROOT_DIR/macos/VERSION" 2>/dev/null || echo "0.0.0")
+MAC_BUILD_NUMBER=$(git -C "$ROOT_DIR" rev-list --count HEAD)
+GIT_HASH=$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DIST_DIR="$ROOT_DIR/dist"
 MAC_PROJECT_DIR="$ROOT_DIR/macos/ClipRelayMac"
 ANDROID_PROJECT_DIR="$ROOT_DIR/android"
+
+SPARKLE_PLIST_KEYS=""
+if [[ -n "${SPARKLE_PUBLIC_KEY:-}" ]]; then
+    SPARKLE_PLIST_KEYS="<key>SUPublicEDKey</key>
+    <string>${SPARKLE_PUBLIC_KEY}</string>"
+fi
 
 BUILD_MAC=true
 BUILD_ANDROID=true
@@ -85,6 +94,19 @@ build_mac() {
 
   cp "$binary_path" "$app_dir/Contents/MacOS/ClipRelay"
 
+  # Copy Sparkle.framework into Frameworks/
+  local sparkle_fw
+  sparkle_fw=$(dirname "$binary_path")/Sparkle.framework
+  if [[ -d "$sparkle_fw" ]]; then
+    mkdir -p "$app_dir/Contents/Frameworks"
+    cp -a "$sparkle_fw" "$app_dir/Contents/Frameworks/Sparkle.framework"
+    install_name_tool -add_rpath @executable_path/../Frameworks "$app_dir/Contents/MacOS/ClipRelay"
+    echo "Copying Sparkle.framework"
+  else
+    echo "Error: Sparkle.framework not found at $sparkle_fw" >&2
+    exit 1
+  fi
+
   # Copy app icon and menu bar icon into Resources
   local resources_src="$MAC_PROJECT_DIR/Resources"
   if [[ -f "$resources_src/AppIcon.icns" ]]; then
@@ -96,7 +118,7 @@ build_mac() {
     fi
   done
 
-  cat > "$app_dir/Contents/Info.plist" <<'PLIST'
+  cat > "$app_dir/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -114,13 +136,18 @@ build_mac() {
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>${MAC_VERSION} (${GIT_HASH})</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>${MAC_BUILD_NUMBER}</string>
+  <key>ClipRelayGitHash</key>
+  <string>${GIT_HASH}</string>
   <key>NSBluetoothAlwaysUsageDescription</key>
   <string>ClipRelay uses Bluetooth Low Energy to discover and sync clipboard text with your paired Android devices.</string>
   <key>LSUIElement</key>
   <true/>
+  <key>SUFeedURL</key>
+  <string>https://raw.githubusercontent.com/geekflyer/cliprelay/main/sparkle/appcast.xml</string>
+  ${SPARKLE_PLIST_KEYS}
 </dict>
 </plist>
 PLIST
@@ -158,11 +185,17 @@ build_android() {
     exit 1
   fi
 
+  ANDROID_VERSION_CODE=$(git tag -l 'android/v*' | wc -l | tr -d ' ')
+  local gradle_version_arg=""
+  if [[ "$ANDROID_VERSION_CODE" -gt 0 ]]; then
+    gradle_version_arg="-PcliVersionCode=$ANDROID_VERSION_CODE"
+  fi
+
   if [[ "$ANDROID_RELEASE" == true ]]; then
     echo "==> Building Android release AAB/APK"
     (
       cd "$ANDROID_PROJECT_DIR"
-      ./gradlew clean bundleRelease assembleRelease
+      ./gradlew clean bundleRelease assembleRelease $gradle_version_arg
     )
 
     local aab_path="$ANDROID_PROJECT_DIR/app/build/outputs/bundle/release/app-release.aab"
@@ -186,7 +219,7 @@ build_android() {
     echo "==> Building Android debug APK"
     (
       cd "$ANDROID_PROJECT_DIR"
-      ./gradlew assembleDebug
+      ./gradlew assembleDebug $gradle_version_arg
     )
 
     local apk_path="$ANDROID_PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"

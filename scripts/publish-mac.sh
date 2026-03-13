@@ -5,7 +5,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_DIR="$DIST_DIR/ClipRelay.app"
-DMG_PATH="$DIST_DIR/ClipRelay.dmg"
+MAC_VERSION=$(cat "$ROOT_DIR/macos/VERSION")
+DMG_PATH="$DIST_DIR/ClipRelay-${MAC_VERSION}.dmg"
 NOTARY_DIR="$DIST_DIR/notary"
 ENTITLEMENTS="$ROOT_DIR/macos/ClipRelayMac/Resources/ClipRelay.entitlements"
 SIGNING_IDENTITY="Developer ID Application: Christian Theilemann (B66YFKPUA8)"
@@ -18,7 +19,8 @@ Usage: ./scripts/publish-mac.sh [options]
 Signs, packages into DMG, notarizes, and staples the macOS app.
 
 Modes:
-  (default)           Sign, create DMG, submit for notarization
+  (default)           Sign, create DMG, submit for notarization (async)
+  --wait              Sign, create DMG, notarize (blocking), and auto-staple
   --staple <id>       Check status and staple a previous submission
   --status [id]       Check notarization status (latest if no id given)
   --list              List all tracked submissions
@@ -85,7 +87,7 @@ cmd_staple() {
     exit 1
   fi
 
-  local dmg="$sub_dir/ClipRelay.dmg"
+  local dmg="$sub_dir/ClipRelay-${MAC_VERSION}.dmg"
   if [[ ! -f "$dmg" ]]; then
     echo "DMG not found: $dmg" >&2
     exit 1
@@ -106,7 +108,7 @@ cmd_staple() {
   echo "==> Stapling notarization ticket"
   xcrun stapler staple "$dmg"
 
-  echo "==> Copying stapled DMG to dist/ClipRelay.dmg"
+  echo "==> Copying stapled DMG to $DMG_PATH"
   cp "$dmg" "$DMG_PATH"
 
   echo "==> Verification"
@@ -119,6 +121,7 @@ cmd_staple() {
 # ── Parse arguments ──
 
 MODE="submit"
+WAIT_MODE=false
 STAPLE_ID=""
 STATUS_ID=""
 
@@ -127,6 +130,10 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       usage
       exit 0
+      ;;
+    --wait)
+      WAIT_MODE=true
+      shift
       ;;
     --list)
       MODE="list"
@@ -222,31 +229,51 @@ echo "DMG created: $DMG_PATH"
 
 # ── 3. Submit for notarization ──
 
-echo "==> Submitting to Apple notarization..."
-SUBMIT_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
-    --keychain-profile "$KEYCHAIN_PROFILE" 2>&1)
-echo "$SUBMIT_OUTPUT"
+if [[ "$WAIT_MODE" == true ]]; then
+  echo "==> Submitting to Apple notarization (--wait mode, this may take several minutes)..."
+  if ! xcrun notarytool submit "$DMG_PATH" \
+      --keychain-profile "$KEYCHAIN_PROFILE" \
+      --wait; then
+    echo "Notarization failed." >&2
+    exit 1
+  fi
 
-SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | grep "^  id:" | head -1 | awk '{print $2}')
+  echo ""
+  echo "==> Stapling notarization ticket"
+  xcrun stapler staple "$DMG_PATH"
 
-if [[ -z "$SUBMISSION_ID" ]]; then
-  echo "Failed to parse submission ID from output." >&2
-  exit 1
-fi
+  echo "==> Verification"
+  xcrun stapler validate "$DMG_PATH"
 
-# ── 4. Save DMG to notary tracking directory ──
+  echo ""
+  echo "==> Notarization and stapling complete: $DMG_PATH"
+else
+  echo "==> Submitting to Apple notarization..."
+  SUBMIT_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
+      --keychain-profile "$KEYCHAIN_PROFILE" 2>&1)
+  echo "$SUBMIT_OUTPUT"
 
-mkdir -p "$NOTARY_DIR/$SUBMISSION_ID"
-cp "$DMG_PATH" "$NOTARY_DIR/$SUBMISSION_ID/ClipRelay.dmg"
-cat > "$NOTARY_DIR/$SUBMISSION_ID/info.txt" <<EOF
+  SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | grep "^  id:" | head -1 | awk '{print $2}')
+
+  if [[ -z "$SUBMISSION_ID" ]]; then
+    echo "Failed to parse submission ID from output." >&2
+    exit 1
+  fi
+
+  # ── 4. Save DMG to notary tracking directory ──
+
+  mkdir -p "$NOTARY_DIR/$SUBMISSION_ID"
+  cp "$DMG_PATH" "$NOTARY_DIR/$SUBMISSION_ID/ClipRelay-${MAC_VERSION}.dmg"
+  cat > "$NOTARY_DIR/$SUBMISSION_ID/info.txt" <<EOF
 id: $SUBMISSION_ID
 date: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 git: $(git -C "$ROOT_DIR" rev-parse HEAD)
 EOF
 
-echo ""
-echo "==> Submitted! DMG saved to dist/notary/$SUBMISSION_ID/"
-echo ""
-echo "Next steps:"
-echo "  Check status:  ./scripts/publish-mac.sh --status $SUBMISSION_ID"
-echo "  Staple when ready:  ./scripts/publish-mac.sh --staple $SUBMISSION_ID"
+  echo ""
+  echo "==> Submitted! DMG saved to dist/notary/$SUBMISSION_ID/"
+  echo ""
+  echo "Next steps:"
+  echo "  Check status:  ./scripts/publish-mac.sh --status $SUBMISSION_ID"
+  echo "  Staple when ready:  ./scripts/publish-mac.sh --staple $SUBMISSION_ID"
+fi
