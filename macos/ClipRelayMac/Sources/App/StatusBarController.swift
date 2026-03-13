@@ -3,6 +3,7 @@
 import AppKit
 import Foundation
 import QuartzCore
+import Sparkle
 
 final class StatusBarController {
     var onPairNewDeviceRequested: (() -> Void)?
@@ -12,6 +13,7 @@ final class StatusBarController {
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
+    private let updaterController: SPUStandardUpdaterController
 
     private var connectedPeers: [PeerSummary] = []
     private var trustedPeers: [PeerSummary] = []
@@ -24,7 +26,8 @@ final class StatusBarController {
     private var baseStatusBarImage: NSImage?
     private var syncPulseTimer: Timer?
 
-    init() {
+    init(updaterController: SPUStandardUpdaterController) {
+        self.updaterController = updaterController
         baseStatusBarImage = loadStatusBarIcon()
         updateStatusBarIcon()
         renderMenu()
@@ -129,7 +132,8 @@ final class StatusBarController {
         menu.addItem(NSMenuItem.separator())
 
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        let versionItem = NSMenuItem(title: "ClipRelay v\(version)", action: nil, keyEquivalent: "")
+        let hash = Bundle.main.infoDictionary?["ClipRelayGitHash"] as? String ?? "?"
+        let versionItem = NSMenuItem(title: "ClipRelay v\(version) (\(hash))", action: nil, keyEquivalent: "")
         versionItem.isEnabled = false
         menu.addItem(versionItem)
 
@@ -140,6 +144,10 @@ final class StatusBarController {
         )
         websiteItem.target = self
         menu.addItem(websiteItem)
+
+        let checkForUpdatesItem = NSMenuItem(title: "Check for Updates\u{2026}", action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "")
+        checkForUpdatesItem.target = updaterController
+        menu.addItem(checkForUpdatesItem)
 
         menu.addItem(NSMenuItem.separator())
 
