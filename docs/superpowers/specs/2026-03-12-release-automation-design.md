@@ -20,13 +20,20 @@ Automate the ClipRelay release and testing process across macOS and Android plat
 
 ### Build Identifier
 - Short git commit hash injected at build time (e.g., `0.3.2 (a1b2c3f)`)
-- **macOS**: Baked into Info.plist via build script
-- **Android**: Injected into `BuildConfig.GIT_HASH` via `build.gradle.kts`
+- **macOS**: `build-all.sh` injects git hash into Info.plist using a custom `ClipRelayGitHash` key via `PlistBuddy` or sed replacement in the heredoc template. `CFBundleVersion` remains the build number.
+- **Android**: Requires `buildFeatures { buildConfig = true }` in `build.gradle.kts`, then `buildConfigField("String", "GIT_HASH", "\"${gitHash}\"")` where `gitHash` is computed via `git rev-parse --short HEAD`.
 
-### Build Scripts
-- `build-all.sh` reads `macos/VERSION` for Info.plist generation instead of hardcoding
-- `build.gradle.kts` reads `android/VERSION` for `versionName`
-- Android `versionCode` auto-increments (derived from git tag count or stored separately)
+### Build Scripts — Migration from Hardcoded Versions
+Currently, versions are hardcoded:
+- `build-all.sh` line ~117 hardcodes `CFBundleShortVersionString` as `0.1.0` in the Info.plist heredoc
+- `android/app/build.gradle.kts` line ~68 hardcodes `versionName = "0.1.0"`
+
+These must be replaced:
+- `build-all.sh`: Read `macos/VERSION` file and substitute into the Info.plist heredoc template
+- `build.gradle.kts`: Read `android/VERSION` file via `file("../VERSION").readText().trim()` for `versionName`
+
+### Android `versionCode` Strategy
+Use git tag count for the `android/v*` tags: `git tag -l 'android/v*' | wc -l`. This auto-increments with each release without requiring manual tracking. The existing manual `versionCode` policy in `android/AGENTS.md` should be removed once this is implemented.
 
 ### Version Display in UI
 - **Android**: Settings/About screen shows version from `BuildConfig.VERSION_NAME` + `BuildConfig.GIT_HASH`
@@ -77,6 +84,8 @@ Then: create GitHub Release with APK attached.
 ```
 Triggered via GitHub Actions UI when ready to promote from internal testing to production.
 
+**Note:** The existing `publish-android.sh` only supports `--track`. The `--promote`, `--from`, and `--to` flags are new functionality to be added, wrapping Gradle Play Publisher's `promoteArtifact` task.
+
 ### GitHub Actions Secrets Required
 - **macOS**: Developer ID certificate (.p12) + password
 - **Android**: Keystore file + passwords, Play Console service account JSON
@@ -91,23 +100,27 @@ Three workflow files:
 ## 3. Sparkle Auto-Update (macOS)
 
 ### Integration
-- Sparkle framework added as a Swift Package dependency
-- On launch, the app checks an appcast XML file for available updates
+- Sparkle 2 framework added as a Swift Package dependency in `Package.swift`
+- `SPUStandardUpdaterController` initialized at app startup
+- On launch, Sparkle checks an appcast XML file for available updates
 - If a newer version exists, the user gets a native macOS update prompt
 
 ### Appcast
-- CI generates/updates appcast XML as part of `release-mac.yml` after notarization
+- CI generates/updates appcast XML as part of `release-mac.yml` after notarization using Sparkle's `generate_appcast` tool
 - Hosted at a predictable URL (e.g., `https://raw.githubusercontent.com/geekflyer/cliprelay/main/sparkle/appcast.xml` or GitHub Pages)
 - Download URLs in appcast point to GitHub Releases DMGs
 
 ### Signing
-- Sparkle EdDSA signing key generated once
+- Sparkle EdDSA signing key generated once via Sparkle's `generate_keys` tool
 - Private key stored as GitHub Actions secret
-- Public key embedded in the app's Info.plist
+- Public key embedded in the app's Info.plist as `SUPublicEDKey`
 
 ### Update Cadence
 - Checks on launch + periodically (Sparkle default: every 24 hours)
-- User can disable auto-update checks in preferences
+- User can disable via "Check for Updates" toggle in the menu bar dropdown (ClipRelay is a menu-bar-only app with `LSUIElement = true`)
+
+### Implementation Note
+Sparkle integration requires additional design decisions during implementation (e.g., handling of the update UI in a menu-bar-only context, delta updates, minimum system version checks). These will be resolved during the implementation phase.
 
 ## 4. GitHub Releases & Changelogs
 
@@ -117,7 +130,7 @@ Three workflow files:
 
 ### Changelog Generation
 - Auto-generated from commit messages between previous and current tag for that platform
-- Filtered to commits touching relevant platform code (`macos/`, `scripts/` for mac; `android/`, `scripts/` for android)
+- Filtered to commits touching relevant platform code (`macos/` for mac; `android/` for android). Commits touching only `scripts/` or root files appear in both changelogs since they may affect either platform.
 - Local script: `scripts/changelog.sh --mac v0.3.1..v0.3.2`
 - Compact format: one line per meaningful change, grouped by type (features, fixes)
 
@@ -165,3 +178,14 @@ Script exits non-zero on any lint failure, blocking CI and matching local behavi
 ## 7. Hardware Tests
 
 BLE hardware smoke tests remain local-only (run when `adb get-state` detects a device). No cloud BLE testing service exists that supports the Mac ↔ Android pairing scenario ClipRelay requires.
+
+## 8. Migration Checklist
+
+Items in the current codebase that need updating as part of this work:
+- Remove hardcoded versions from `build-all.sh` and `build.gradle.kts` (replaced by VERSION files)
+- Remove manual `versionCode` increment policy from `android/AGENTS.md`
+- Remove `website/downloads/` directory and static DMG hosting (replaced by GitHub Releases)
+- Add `--promote` support to `publish-android.sh`
+- Add `buildFeatures { buildConfig = true }` to Android `build.gradle.kts`
+- Add Sparkle 2 dependency to `Package.swift`
+- Consider `.gitignore`-ing or removing `cliprelay-release.keystore` from repo root (security concern — should be a CI secret only)
