@@ -60,6 +60,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import org.cliprelay.BuildConfig
 import org.cliprelay.R
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.Flow
@@ -760,5 +761,11 @@ private fun FooterSection() {
                 color = Color(0x99000000)
             )
         }
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = "v${BuildConfig.VERSION_NAME} (${BuildConfig.GIT_HASH})",
+            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

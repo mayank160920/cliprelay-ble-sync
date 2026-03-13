@@ -64,8 +64,13 @@ android {
         applicationId = "org.cliprelay"
         minSdk = 31
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.1.0"
+        versionCode = (project.findProperty("cliVersionCode") as? String)?.toIntOrNull() ?: 5
+        versionName = file("../VERSION").readText().trim()
+
+        val gitHash = providers.exec {
+            commandLine("git", "rev-parse", "--short", "HEAD")
+        }.standardOutput.asText.get().trim()
+        buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
     }
 
     signingConfigs {
@@ -104,6 +109,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
 }
