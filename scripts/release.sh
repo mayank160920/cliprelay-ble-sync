@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Creates a release by bumping VERSION, committing, tagging, and pushing.
+# Creates a release by bumping VERSION, committing, pushing, and dispatching the CI workflow.
+# The workflow creates the git tag only after a successful build+publish.
 # Usage: ./scripts/release.sh --mac 0.3.2
 #        ./scripts/release.sh --android 0.3.1
 #        ./scripts/release.sh --all 0.4.0
@@ -71,17 +72,14 @@ echo "==> Running tests before release..."
 "$ROOT_DIR/scripts/test-all.sh"
 
 # Bump version file(s)
-TAGS=()
 for platform in "${PLATFORMS[@]}"; do
     case "$platform" in
         mac)
             echo "$VERSION" > "$ROOT_DIR/macos/VERSION"
-            TAGS+=("mac/v${VERSION}")
             echo "==> Bumped macos/VERSION to $VERSION"
             ;;
         android)
             echo "$VERSION" > "$ROOT_DIR/android/VERSION"
-            TAGS+=("android/v${VERSION}")
             echo "==> Bumped android/VERSION to $VERSION"
             ;;
     esac
@@ -102,35 +100,36 @@ else
     git -C "$ROOT_DIR" commit -m "release: bump version to $VERSION for ${PLATFORMS[*]}"
 fi
 
-# Create tags
-for tag in "${TAGS[@]}"; do
-    git -C "$ROOT_DIR" tag "$tag"
-    echo "==> Created tag $tag"
-done
-
-# Push commit and newly created tags
+# Push commit (no tags — workflow creates tags on success)
 git -C "$ROOT_DIR" push
-for tag in "${TAGS[@]}"; do
-    git -C "$ROOT_DIR" push origin "$tag"
-done
+
 # Detect GitHub repo from remote
 REPO=$(git -C "$ROOT_DIR" remote get-url origin | sed -E 's#.+github\.com[:/](.+)\.git$#\1#')
 
-echo "==> Pushed to remote. Waiting for CI workflows to start..."
-for tag in "${TAGS[@]}"; do
-    echo "    Polling for workflow triggered by $tag..."
+# Map platforms to workflow filenames
+declare -A WORKFLOW_FILES
+WORKFLOW_FILES[mac]="release-mac.yml"
+WORKFLOW_FILES[android]="release-android.yml"
+
+# Dispatch workflows and poll for run URLs
+for platform in "${PLATFORMS[@]}"; do
+    WORKFLOW="${WORKFLOW_FILES[$platform]}"
+    echo "==> Dispatching $WORKFLOW with version=$VERSION..."
+    gh workflow run "$WORKFLOW" --repo "$REPO" -f version="$VERSION"
+
+    echo "    Polling for workflow run..."
     RUN_URL=""
     for i in $(seq 1 30); do
-        RUN_URL=$(gh run list --repo "$REPO" --limit 5 --json headBranch,url,event \
-            --jq ".[] | select(.headBranch == \"$tag\") | .url" 2>/dev/null | head -1)
+        sleep 2
+        RUN_URL=$(gh run list --repo "$REPO" --workflow="$WORKFLOW" --limit 1 \
+            --json url,status,createdAt --jq '.[0].url' 2>/dev/null)
         if [[ -n "$RUN_URL" ]]; then
             break
         fi
-        sleep 2
     done
     if [[ -n "$RUN_URL" ]]; then
         echo "    Release job: $RUN_URL"
     else
-        echo "    Could not find workflow run for $tag. Check: https://github.com/$REPO/actions"
+        echo "    Could not find workflow run. Check: https://github.com/$REPO/actions"
     fi
 done

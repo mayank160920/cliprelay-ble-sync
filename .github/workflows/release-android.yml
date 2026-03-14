@@ -1,20 +1,23 @@
 name: Release Android
 
 on:
-  push:
-    tags:
-      - 'android/v*'
-
   workflow_dispatch:
     inputs:
+      version:
+        description: 'Version to release (e.g., 0.1.2)'
+        type: string
+        required: false
       promote:
         description: 'Promote from internal to production'
         type: boolean
         default: false
 
+permissions:
+  contents: write
+
 jobs:
   release:
-    if: github.event_name == 'push'
+    if: inputs.version != '' && !inputs.promote
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -22,9 +25,16 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Extract version from tag
+      - name: Set version
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/android/v}" >> "$GITHUB_OUTPUT"
+        run: echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag does not exist
+        run: |
+          if git rev-parse "android/v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "Error: Tag android/v${{ steps.version.outputs.version }} already exists" >&2
+            exit 1
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -70,9 +80,9 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          PREV_TAG=$(git tag -l 'android/v*' --sort=-v:refname | sed -n '2p' | sed 's|^android/||')
+          PREV_TAG=$(git tag -l 'android/v*' --sort=-v:refname | head -1 | sed 's|^android/||')
           if [[ -n "$PREV_TAG" ]]; then
-            BODY=$(./scripts/changelog.sh --android "${PREV_TAG}..v${{ steps.version.outputs.version }}")
+            BODY=$(./scripts/changelog.sh --android "${PREV_TAG}..HEAD")
           else
             BODY="- Initial release"
           fi
@@ -80,9 +90,18 @@ jobs:
           echo "$BODY" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "android/v${{ steps.version.outputs.version }}" \
+            -m "Android release ${{ steps.version.outputs.version }}"
+          git push origin "android/v${{ steps.version.outputs.version }}"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: "android/v${{ steps.version.outputs.version }}"
           name: "Android v${{ steps.version.outputs.version }}"
           body: ${{ steps.changelog.outputs.body }}
           files: dist/cliprelay-release.apk

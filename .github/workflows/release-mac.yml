@@ -1,9 +1,12 @@
 name: Release macOS
 
 on:
-  push:
-    tags:
-      - 'mac/v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.1.2)'
+        type: string
+        required: true
 
 permissions:
   contents: write
@@ -17,9 +20,16 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Extract version from tag
+      - name: Set version
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/mac/v}" >> "$GITHUB_OUTPUT"
+        run: echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag does not exist
+        run: |
+          if git rev-parse "mac/v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "Error: Tag mac/v${{ steps.version.outputs.version }} already exists" >&2
+            exit 1
+          fi
 
       - name: Load secrets from 1Password
         uses: 1Password/load-secrets-action@v3
@@ -64,9 +74,9 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          PREV_TAG=$(git tag -l 'mac/v*' --sort=-v:refname | sed -n '2p' | sed 's|^mac/||')
+          PREV_TAG=$(git tag -l 'mac/v*' --sort=-v:refname | head -1 | sed 's|^mac/||')
           if [[ -n "$PREV_TAG" ]]; then
-            BODY=$(./scripts/changelog.sh --mac "${PREV_TAG}..v${{ steps.version.outputs.version }}")
+            BODY=$(./scripts/changelog.sh --mac "${PREV_TAG}..HEAD")
           else
             BODY="- Initial release"
           fi
@@ -74,9 +84,18 @@ jobs:
           echo "$BODY" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "mac/v${{ steps.version.outputs.version }}" \
+            -m "macOS release ${{ steps.version.outputs.version }}"
+          git push origin "mac/v${{ steps.version.outputs.version }}"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: "mac/v${{ steps.version.outputs.version }}"
           name: "macOS v${{ steps.version.outputs.version }}"
           body: ${{ steps.changelog.outputs.body }}
           files: dist/ClipRelay-${{ steps.version.outputs.version }}.dmg
