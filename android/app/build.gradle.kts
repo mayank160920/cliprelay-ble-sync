@@ -64,7 +64,7 @@ android {
         applicationId = "org.cliprelay"
         minSdk = 31
         targetSdk = 35
-        versionCode = (project.findProperty("cliVersionCode") as? String)?.toIntOrNull() ?: 5
+        versionCode = 1  // Auto-incremented by Play plugin's resolutionStrategy
         versionName = file("../VERSION").readText().trim()
 
         val gitHash = providers.exec {
@@ -117,6 +117,7 @@ android {
 play {
     defaultToAppBundles.set(true)
     track.set(playTrack)
+    resolutionStrategy.set(com.github.triplet.gradle.androidpublisher.ResolutionStrategy.AUTO)
 
     if (playServiceAccountFile != null) {
         serviceAccountCredentials.set(rootProject.file(playServiceAccountFile))
