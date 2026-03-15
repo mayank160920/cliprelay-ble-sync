@@ -1,1 +1,1 @@
-Sync your clipboard between Android and Mac over Bluetooth.
+Universal clipboard for Android and Mac. Bluetooth-only, no cloud.

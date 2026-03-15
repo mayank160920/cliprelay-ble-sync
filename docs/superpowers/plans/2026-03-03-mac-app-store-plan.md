@@ -262,7 +262,7 @@ Save to `appstore/metadata/en-US/name.txt`. (Max 30 chars)
 **Step 3: Write `subtitle.txt`**
 
 ```
-Clipboard Sync over Bluetooth
+Universal Clipboard over BLE
 ```
 
 Save to `appstore/metadata/en-US/subtitle.txt`. (Max 30 chars)
@@ -280,7 +280,7 @@ Save to `appstore/metadata/en-US/keywords.txt`. (Max 100 chars, comma-separated)
 Adapt from Play Store listing (Mac-centric perspective):
 
 ```
-ClipRelay syncs your clipboard between your Mac and Android phone instantly over Bluetooth Low Energy. Copy on one device, paste on the other.
+ClipRelay is a universal clipboard across your Mac and Android phone, powered by Bluetooth Low Energy. Copy on one device, paste on the other — instantly.
 
 No cloud. No servers. No internet required. Your clipboard data never leaves your devices.
 

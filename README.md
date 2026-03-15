@@ -1,6 +1,6 @@
 # ClipRelay
 
-Seamless, encrypted clipboard sharing between Mac and Android over Bluetooth.
+Universal clipboard for Android and Mac — encrypted, Bluetooth-only, no cloud.
 
 - **End-to-end encrypted** — AES-256-GCM encryption. ECDH key exchange (X25519) during pairing.
 - **Bluetooth only** — direct BLE transfer, no WiFi or internet needed
