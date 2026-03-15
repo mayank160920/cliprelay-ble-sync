@@ -1,20 +1,46 @@
-# ClipRelay
+<p align="center">
+  <img src="docs/images/banner.png" alt="ClipRelay" width="480">
+</p>
 
-Universal clipboard for Android and Mac — encrypted, Bluetooth-only, no cloud.
+<p align="center">
+  <strong>Universal clipboard for Android and Mac</strong><br>
+  Encrypted, Bluetooth-only, no cloud.
+</p>
+
+<p align="center">
+  <a href="https://cliprelay.org/beta.html">Join Android Beta</a> &bull;
+  <a href="https://cliprelay.org/downloads/ClipRelay.dmg">Download for Mac</a> &bull;
+  <a href="https://cliprelay.org">Website</a>
+</p>
+
+---
+
+Copy on one device, paste on the other. ClipRelay syncs your clipboard between Android and Mac over Bluetooth Low Energy — no cloud, no servers, no accounts.
 
 - **End-to-end encrypted** — AES-256-GCM encryption. ECDH key exchange (X25519) during pairing.
 - **Bluetooth only** — direct BLE transfer, no WiFi or internet needed
 - **No cloud, no servers** — your clipboard data never leaves the connection between your devices
 - **Text only** — up to 100 KiB per transfer
 
-## Download
+## Screenshots
 
-The easiest way to get ClipRelay is from the official releases:
+<p align="center">
+  <img src="docs/images/android-connected.png" alt="ClipRelay Android app" height="400">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/android-share.png" alt="Android Share menu with ClipRelay direct share" height="400">
+</p>
 
-- **Android** — [Join the beta on Google Play](https://cliprelay.org/beta.html)
-- **Mac** — [Download the DMG](https://cliprelay.org/downloads/ClipRelay.dmg)
+<p align="center">
+  <em>Android app &nbsp;&bull;&nbsp; Share menu with direct share to Mac</em>
+</p>
 
-For more details, visit [cliprelay.org](https://cliprelay.org).
+<p align="center">
+  <img src="docs/images/mac-menubar.png" alt="ClipRelay Mac menu bar" width="420">
+</p>
+
+<p align="center">
+  <em>Mac menu bar</em>
+</p>
 
 ## How it works
 
