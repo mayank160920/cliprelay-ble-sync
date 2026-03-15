@@ -35,6 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardMonitor: ClipboardMonitor?
     private var awaitingNewPairingConnection = false
     private var hasShownBluetoothAlert = false
+    private var bluetoothOffDebounceTimer: Timer?
+    private static let bluetoothOffDebounceDelay: TimeInterval = 5.0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         notificationManager.requestAuthorization()
@@ -91,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        bluetoothOffDebounceTimer?.invalidate()
         clipboardMonitor?.stop()
         activeSession?.close()
         connectionManager?.disconnect()
@@ -328,16 +331,28 @@ extension AppDelegate: ConnectionManagerDelegate {
             guard let self else { return }
             switch state {
             case .poweredOn:
+                // Cancel any pending "Bluetooth off" alert — BT recovered (e.g. after sleep/wake)
+                self.bluetoothOffDebounceTimer?.invalidate()
+                self.bluetoothOffDebounceTimer = nil
                 self.statusBarController.setBluetoothWarning(nil)
                 self.hasShownBluetoothAlert = false
             case .poweredOff:
                 self.statusBarController.setBluetoothWarning("Bluetooth is turned off")
-                if !self.hasShownBluetoothAlert {
-                    self.hasShownBluetoothAlert = true
-                    self.showBluetoothAlert(
-                        message: "Bluetooth is turned off",
-                        info: "ClipRelay needs Bluetooth to sync your clipboard. Please enable Bluetooth in System Settings."
-                    )
+                // Debounce: wait before showing the modal alert.
+                // macOS transiently reports poweredOff during sleep/wake cycles;
+                // if BT comes back within the window, the alert is cancelled.
+                if !self.hasShownBluetoothAlert && self.bluetoothOffDebounceTimer == nil {
+                    self.bluetoothOffDebounceTimer = Timer.scheduledTimer(
+                        withTimeInterval: Self.bluetoothOffDebounceDelay, repeats: false
+                    ) { [weak self] _ in
+                        guard let self else { return }
+                        self.bluetoothOffDebounceTimer = nil
+                        self.hasShownBluetoothAlert = true
+                        self.showBluetoothAlert(
+                            message: "Bluetooth is turned off",
+                            info: "ClipRelay needs Bluetooth to sync your clipboard. Please enable Bluetooth in System Settings."
+                        )
+                    }
                 }
             case .unauthorized:
                 self.statusBarController.setBluetoothWarning("Bluetooth permission denied")
