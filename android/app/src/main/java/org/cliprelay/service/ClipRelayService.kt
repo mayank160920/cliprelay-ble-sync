@@ -80,6 +80,8 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
     private var encryptionKey: SecretKey? = null
     @Volatile
     private var lastInboundHash: String? = null
+    @Volatile
+    private var lastSentTextHash: String? = null
 
     // Support
     private lateinit var clipboardWriter: ClipboardWriter
@@ -519,6 +521,15 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         if (plaintext.isEmpty() || plaintext.size > MAX_CLIPBOARD_BYTES) {
             return
         }
+
+        // Dedup: skip if we already sent this exact text
+        val textHash = MessageDigest.getInstance("SHA-256")
+            .digest(plaintext).joinToString("") { "%02x".format(it) }
+        if (textHash == lastSentTextHash) {
+            Log.d(TAG, "Skipping send — same text already sent")
+            return
+        }
+        lastSentTextHash = textHash
 
         val session = activeSession
         if (session == null) {

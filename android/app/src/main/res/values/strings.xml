@@ -21,7 +21,7 @@
     <string name="qr_module_still_downloading">Barcode scanner is still downloading. Please try again shortly.</string>
     <string name="auto_clear_setting_title">Auto-clear synced clipboard</string>
     <string name="auto_clear_setting_subtitle">Clear Mac-synced clipboard text after 60 seconds.</string>
-    <string name="auto_copy_setting_title">Auto-copy to Mac</string>
+    <string name="auto_copy_setting_title">Auto-copy to Mac (Experimental)</string>
     <string name="auto_copy_setting_subtitle_on">Automatically send copied text to Mac</string>
     <string name="auto_copy_setting_subtitle_off">Use share menu to send text</string>
     <string name="onboarding_title">Sharing your clipboard</string>
