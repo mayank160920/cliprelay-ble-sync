@@ -7,13 +7,15 @@
 
 ## Executive Summary
 
-ClipRelay implements a BLE-based clipboard relay between macOS and Android using AES-256-GCM encryption with HKDF-derived keys, shared via a QR code pairing flow. The cryptographic primitives are well-chosen and correctly implemented. The primary weaknesses are at the protocol design layer (unauthenticated handshake, no replay protection, no forward secrecy). No immediately exploitable remote vulnerabilities were found — all attacks require BLE proximity or local access.
+ClipRelay implements a BLE-based clipboard relay between macOS and Android using AES-256-GCM encryption with HKDF-derived keys, shared via a QR code pairing flow. The cryptographic primitives are well-chosen and correctly implemented. The primary weaknesses are at the protocol design layer (unauthenticated handshake, no forward secrecy). No immediately exploitable remote vulnerabilities were found — all attacks require BLE proximity or local access.
 
 ### Changes since last review (2026-03-03)
 
-- **Removed (fixed):** H-3 (debug file logger to `/tmp`) — `debugLog()` replaced with `os.Logger` exclusively. H-4 renumbered to H-3.
+- **Removed (fixed):** H-3 (debug file logger to `/tmp`) — `debugLog()` replaced with `os.Logger` exclusively.
+- **Downgraded:** H-1 (replay protection) from HIGH to L-10. Impact is limited to stale clipboard text; comparable apps don't implement bespoke replay protection; largely subsumed by M-11 forward secrecy proposal.
 - **Removed (fixed):** L-7 `PsmGattServer.kt` reference — file no longer exists. Updated to reference only `ClipRelayService.kt`.
 - **Added:** M-11 — No forward secrecy (long-term shared secret used indefinitely without session key rotation).
+- Renumbered: H-2→H-1, H-4→H-2.
 
 ---
 
@@ -21,15 +23,7 @@ ClipRelay implements a BLE-based clipboard relay between macOS and Android using
 
 ### HIGH
 
-#### H-1: No replay protection at protocol layer
-
-**Files:** `macos/ClipRelayMac/Sources/Protocol/Session.swift`, `android/.../protocol/Session.kt`
-
-No sequence numbers, timestamps, or nonce-tracking at the session layer. The dedup mechanism (`lastReceivedHash` / `lastInboundHash`) is a single in-memory value that does not persist across restarts. An attacker in BLE range who captures an encrypted L2CAP frame can replay it after the target app restarts. Mitigating factor: AES-GCM uses a fresh random nonce per encryption, so the dedup hash changes even for the same plaintext — the attacker can only replay the exact captured ciphertext, not forge new content.
-
-**Fix:** Add a monotonically increasing sequence number to OFFER messages. Reject messages with a sequence number <= the highest previously seen.
-
-#### H-2: Handshake has no cryptographic authentication
+#### H-1: Handshake has no cryptographic authentication
 
 **Files:** `macos/.../Protocol/Session.swift:118-142`, `android/.../protocol/Session.kt:106-130`
 
@@ -37,7 +31,7 @@ The HELLO/WELCOME exchange only transmits `{"version": 1, "name": "..."}`. No HM
 
 **Fix:** Add a challenge-response step: each side sends a random nonce, the other side responds with `HMAC(nonce, derived_auth_key)` to prove possession of the shared secret before exchanging clipboard data.
 
-#### H-3: Insecure L2CAP channel (no BLE-level encryption) — ACCEPTED RISK
+#### H-2: Insecure L2CAP channel (no BLE-level encryption) — ACCEPTED RISK
 
 **Files:** `android/.../ble/L2capServer.kt:30`
 
@@ -161,6 +155,7 @@ BLE connections already drop and reconnect frequently, so session keys rotate na
 | L-7 | `Log.w` statements expose PSM and connection state in release logcat | `ClipRelayService.kt` |
 | L-8 | ProGuard rules file is empty — no log stripping configured | `android/app/proguard-rules.pro` |
 | L-9 | `security-crypto` uses alpha version `1.1.0-alpha06` | `android/app/build.gradle.kts:173` |
+| L-10 | No explicit replay protection at protocol layer — attacker in BLE range could replay captured ciphertext after app restart. Impact limited to stale clipboard text reappearing. Mitigated by AES-GCM random nonces, single-hash dedup, and largely subsumed by M-11 (per-session ephemeral keys would make captured frames undecryptable). Comparable apps (KDE Connect, etc.) do not implement bespoke replay protection either. | `Session.swift`, `Session.kt` |
 
 ---
 
@@ -202,6 +197,5 @@ BLE connections already drop and reconnect frequently, so session keys rotate na
 
 ### Significant effort (protocol changes)
 
-8. **H-2** — Add mutual authentication (challenge-response) to handshake
-9. **H-1** — Add sequence numbers / replay protection to protocol
-10. **M-11** — Add per-session ephemeral key exchange for forward secrecy
+8. **H-1** — Add mutual authentication (challenge-response) to handshake
+9. **M-11** — Add per-session ephemeral key exchange for forward secrecy (also addresses H-1 and L-10)
