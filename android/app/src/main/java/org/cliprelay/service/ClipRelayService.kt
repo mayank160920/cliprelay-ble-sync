@@ -30,14 +30,15 @@ import org.cliprelay.crypto.E2ECrypto
 import org.cliprelay.debug.DebugSmokeProbe
 import org.cliprelay.permissions.BlePermissions
 import org.cliprelay.pairing.PairingStore
+import org.cliprelay.protocol.ProtocolException
 import org.cliprelay.protocol.Session
 import org.cliprelay.protocol.SessionCallback
 import org.cliprelay.protocol.SessionMode
+import org.cliprelay.protocol.VersionMismatchException
 import org.cliprelay.settings.ClipboardSettingsStore
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.Executors
-import javax.crypto.SecretKey
 
 class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
     companion object {
@@ -55,6 +56,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         const val EXTRA_DEVICE_TAG = "extra_device_tag"
         const val EXTRA_FROM_MAC = "extra_from_mac"
 
+        const val ACTION_VERSION_MISMATCH = "org.cliprelay.action.VERSION_MISMATCH"
         const val ACTION_GHOST_FINISHED = "org.cliprelay.action.GHOST_FINISHED"
         const val ACTION_ACCESSIBILITY_COPY_DETECTED = "org.cliprelay.action.ACCESSIBILITY_COPY_DETECTED"
 
@@ -75,9 +77,8 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
     private var activeSession: Session? = null
     private var sessionThread: Thread? = null
 
-    // Crypto
-    @Volatile
-    private var encryptionKey: SecretKey? = null
+    // Pairing state
+    private val isPaired: Boolean get() = pairingStore.loadSharedSecret() != null
     @Volatile
     private var lastInboundHash: String? = null
     @Volatile
@@ -139,7 +140,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         ensureBleComponentsState()
 
         // Publish direct share shortcut if already paired
-        if (encryptionKey != null) {
+        if (isPaired) {
             publishDirectShareShortcut(loadConnectedDeviceName())
         }
     }
@@ -168,7 +169,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
             ACTION_RELOAD_PAIRING -> {
                 // RELOAD_PAIRING handles its own BLE lifecycle — skip the
                 // general ensureBleComponentsState() to avoid a double-start.
-                if (encryptionKey == null) {
+                if (!isPaired) {
                     if (bleStarted) {
                         stopBleComponents()
                     }
@@ -217,7 +218,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
     // ── BLE stack management ──────────────────────────────────────────
 
     private fun ensureBleComponentsState(restartIfRunning: Boolean = false) {
-        if (encryptionKey == null && !pairingInProgress) {
+        if (!isPaired && !pairingInProgress) {
             if (bleStarted) {
                 Log.w(TAG, "Shared secret missing; stopping BLE components")
                 stopBleComponents()
@@ -245,7 +246,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
     }
 
     private fun startBle() {
-        Log.w(TAG, "startBle() — encryptionKey=${if (encryptionKey != null) "set" else "null"}")
+        Log.w(TAG, "startBle() — isPaired=$isPaired")
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
         val adapter = bluetoothManager?.adapter
         if (adapter == null) {
@@ -274,9 +275,8 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
                         .copyOfRange(0, 8)
                 }
             } else {
-                encryptionKey?.let {
-                    val secret = pairingStore.loadSharedSecret()
-                    if (secret != null) E2ECrypto.deviceTag(E2ECrypto.hexToBytes(secret)) else null
+                pairingStore.loadSharedSecret()?.let { secret ->
+                    E2ECrypto.deviceTag(E2ECrypto.hexToBytes(secret))
                 }
             }
             adv.start()
@@ -329,10 +329,8 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         val secret = pairingStore.loadSharedSecret()
         if (secret != null) {
             val secretBytes = E2ECrypto.hexToBytes(secret)
-            encryptionKey = E2ECrypto.deriveKey(secretBytes)
             advertiser?.deviceTag = E2ECrypto.deviceTag(secretBytes)
         } else {
-            encryptionKey = null
             advertiser?.deviceTag = null
             saveConnectedDeviceName(null)
         }
@@ -369,11 +367,13 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         }
 
         // Create new session (Android is the responder)
+        val secret = if (pairingInProgress) null else pairingStore.loadSharedSecret()
         val session = Session(
             socket.inputStream, socket.outputStream,
             isInitiator = false,
             this,  // SessionCallback
-            mode = mode
+            mode = mode,
+            sharedSecretHex = secret
         )
         session.localName = android.os.Build.MODEL
         activeSession = session
@@ -426,20 +426,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         DebugSmokeProbe.onConnectionChanged(this, true)
     }
 
-    override fun onClipboardReceived(encryptedBlob: ByteArray, hash: String) {
-        val key = encryptionKey
-        if (key == null) {
-            Log.w(TAG, "No encryption key; ignoring incoming clipboard")
-            return
-        }
-
-        val plaintext = try {
-            E2ECrypto.open(encryptedBlob, key)
-        } catch (e: Exception) {
-            Log.e(TAG, "Decryption failed: ${e.message}")
-            return
-        }
-
+    override fun onClipboardReceived(plaintext: ByteArray, hash: String) {
         val decodedText = plaintext.toString(Charsets.UTF_8)
         if (decodedText.isEmpty()) return
 
@@ -461,6 +448,12 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         sessionThread = null
         sendConnectionBroadcast(false)
         DebugSmokeProbe.onConnectionChanged(this, false)
+
+        if (error is VersionMismatchException) {
+            val intent = Intent(ACTION_VERSION_MISMATCH)
+            intent.setPackage(packageName)
+            sendBroadcast(intent)
+        }
         // L2CAP server is still listening, will accept next connection
     }
 
@@ -474,9 +467,6 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
 
         // Store the shared secret
         pairingStore.saveSharedSecret(secretHex)
-
-        // Update encryption key
-        encryptionKey = E2ECrypto.deriveKey(sharedSecret)
 
         // Update the device tag for future advertisements, but do NOT restart
         // advertising now — the HELLO/WELCOME handshake is still in progress on
@@ -537,20 +527,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
             return
         }
 
-        val key = encryptionKey
-        if (key == null) {
-            Log.w(TAG, "No encryption key; skipping Android->Mac push")
-            return
-        }
-
-        val encrypted = try {
-            E2ECrypto.seal(plaintext, key)
-        } catch (e: Exception) {
-            Log.e(TAG, "Encryption failed: ${e.message}")
-            return
-        }
-
-        session.sendClipboard(encrypted)
+        session.sendClipboard(plaintext)
         DebugSmokeProbe.onOutboundClipboardPublished(this, text)
     }
 
