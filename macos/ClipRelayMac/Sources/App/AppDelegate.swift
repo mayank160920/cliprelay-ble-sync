@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let clipboardWriter = ClipboardWriter()
     private let notificationManager = ReceiveNotificationManager()
     private let pairingWindowController = PairingWindowController()
+    private let messagesWindowController = MessagesWindowController()
 
     override init() {
         updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
@@ -75,6 +76,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusBarController.isDeviceConnected = { [weak self] in
             self?.connectedSecret != nil
+        }
+        statusBarController.onGetLatestMessagesRequested = { [weak self] in
+            self?.showLatestMessages()
         }
         pairingWindowController.onDidClose = { [weak self] in
             self?.handlePairingWindowClosed()
@@ -273,6 +277,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activeSession?.sendConfigUpdate()
 
         appLogger.info("[App] Image sync toggled to \(newEnabled)")
+    }
+
+
+
+    private func showLatestMessages() {
+        let dummyMessages = [
+            "Alex: Are we still meeting at 6 PM?",
+            "Mom: Don’t forget to pick up groceries on your way home.",
+            "ClipRelay QA Bot: Dummy SMS sync payload #42 ready for preview.",
+            "Sam: Sent you the design notes—check when you can."
+        ]
+        messagesWindowController.show(messages: dummyMessages)
     }
 
     // MARK: - Menu Helpers

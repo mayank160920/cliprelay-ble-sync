@@ -13,6 +13,7 @@ final class StatusBarController {
     var onToggleImageSync: (() -> Void)?
     var isImageSyncEnabled: (() -> Bool)?
     var isDeviceConnected: (() -> Bool)?
+    var onGetLatestMessagesRequested: (() -> Void)?
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
@@ -160,6 +161,14 @@ final class StatusBarController {
         }
         menu.addItem(imageSyncItem)
 
+        let latestMessagesItem = NSMenuItem(
+            title: "Get Latest Messages",
+            action: #selector(handleGetLatestMessages),
+            keyEquivalent: "m"
+        )
+        latestMessagesItem.target = self
+        menu.addItem(latestMessagesItem)
+
         menu.addItem(NSMenuItem.separator())
 
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
@@ -280,6 +289,11 @@ final class StatusBarController {
         if let url = URL(string: "https://cliprelay.org") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    @objc
+    private func handleGetLatestMessages() {
+        onGetLatestMessagesRequested?()
     }
 
     @objc
