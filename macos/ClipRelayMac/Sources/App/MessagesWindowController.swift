@@ -59,6 +59,10 @@ final class MessagesWindowController {
         textView.isEditable = false
         textView.drawsBackground = false
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(width: 0, height: .greatestFiniteMagnitude)
 
         let titleLabel = NSTextField(labelWithString: "Latest Messages")
         titleLabel.font = .boldSystemFont(ofSize: 18)
@@ -68,6 +72,7 @@ final class MessagesWindowController {
 
         let scrollView = NSScrollView(frame: .zero)
         scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.documentView = textView
         scrollView.drawsBackground = false
@@ -76,9 +81,17 @@ final class MessagesWindowController {
         stack.orientation = .vertical
         stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let contentView = NSView(frame: .zero)
+        contentView.addSubview(stack)
 
         NSLayoutConstraint.activate([
-            scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 220)
+            scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 220),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
         ])
 
         let newWindow = NSWindow(
@@ -89,7 +102,7 @@ final class MessagesWindowController {
         )
         newWindow.title = "Latest Messages"
         newWindow.isReleasedWhenClosed = false
-        newWindow.contentView = stack
+        newWindow.contentView = contentView
         newWindow.center()
 
         let delegate = MessagesWindowCloseHandler { [weak self] in

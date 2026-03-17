@@ -566,24 +566,21 @@ extension AppDelegate: SessionDelegate {
 
     func session(_ session: Session, didReceiveSmsSyncResponse messagesJSON: Data) {
         do {
-            guard let json = try JSONSerialization.jsonObject(with: messagesJSON) as? [String: Any] else {
-                throw SessionError.protocolError("Invalid SMS response payload")
-            }
+            let response = try JSONDecoder().decode(SmsSyncResponse.self, from: messagesJSON)
 
-            let ok = json["ok"] as? Bool ?? false
-            if !ok {
-                let message = (json["errorMessage"] as? String) ?? "Failed to fetch messages on Android."
+            if !response.ok {
+                let message = response.errorMessage ?? "Failed to fetch messages on Android."
                 DispatchQueue.main.async { [weak self] in
                     self?.messagesWindowController.showError(message)
                 }
                 return
             }
 
-            let entries = (json["messages"] as? [[String: Any]] ?? []).map { item in
+            let entries = response.messages.map {
                 SyncedMessage(
-                    address: item["address"] as? String ?? "Unknown",
-                    body: item["body"] as? String ?? "",
-                    timestampMs: (item["timestampMs"] as? NSNumber)?.int64Value ?? 0
+                    address: $0.address ?? "Unknown",
+                    body: $0.body ?? "",
+                    timestampMs: $0.timestampMs ?? 0
                 )
             }
 
@@ -694,4 +691,29 @@ extension AppDelegate: SessionDelegate {
             deviceTagHex: formattedDeviceTagHex(token: token)
         )]
     }
+}
+
+private struct SmsSyncResponse: Decodable {
+    let ok: Bool
+    let errorMessage: String?
+    let messages: [SmsSyncResponseMessage]
+
+    private enum CodingKeys: String, CodingKey {
+        case ok
+        case errorMessage
+        case messages
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ok = try container.decode(Bool.self, forKey: .ok)
+        errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+        messages = try container.decodeIfPresent([SmsSyncResponseMessage].self, forKey: .messages) ?? []
+    }
+}
+
+private struct SmsSyncResponseMessage: Decodable {
+    let address: String?
+    let body: String?
+    let timestampMs: Int64?
 }
