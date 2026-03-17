@@ -163,10 +163,11 @@ PLIST
         --timestamp \
         "$app_dir"
   else
-    echo "Developer ID not found, signing ad-hoc with hardened runtime..."
+    echo "Developer ID not found, signing ad-hoc without hardened runtime..."
+    echo "(avoids Team ID library validation failures when loading bundled Sparkle.framework)"
     codesign --force --sign - \
         --entitlements "$entitlements_path" \
-        --options runtime \
+        --deep \
         "$app_dir"
   fi
   echo "Code signing complete."
