@@ -3,7 +3,6 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.github.triplet.play")
 }
@@ -58,13 +57,13 @@ val playTrack = playValue("track", "PLAY_TRACK") ?: "internal"
 
 android {
     namespace = "org.cliprelay"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "org.cliprelay"
         minSdk = 31
-        targetSdk = 35
-        versionCode = (project.findProperty("cliVersionCode") as? String)?.toIntOrNull() ?: 5
+        targetSdk = 36
+        versionCode = 1  // Auto-incremented by Play plugin's resolutionStrategy
         versionName = file("../VERSION").readText().trim()
 
         val gitHash = providers.exec {
@@ -103,10 +102,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -117,6 +112,7 @@ android {
 play {
     defaultToAppBundles.set(true)
     track.set(playTrack)
+    resolutionStrategy.set(com.github.triplet.gradle.androidpublisher.ResolutionStrategy.AUTO)
 
     if (playServiceAccountFile != null) {
         serviceAccountCredentials.set(rootProject.file(playServiceAccountFile))
@@ -167,6 +163,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.activity:activity-compose:1.9.3")
 
     implementation("androidx.core:core-ktx:1.15.0")

@@ -8,8 +8,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,6 +24,7 @@ import androidx.core.content.ContextCompat
 import org.cliprelay.crypto.E2ECrypto
 import org.cliprelay.pairing.PairingStore
 import org.cliprelay.permissions.BlePermissions
+import org.cliprelay.service.ClipboardAccessibilityService
 import org.cliprelay.service.ClipRelayService
 import org.cliprelay.settings.ClipboardSettingsStore
 
@@ -40,10 +44,18 @@ class MainActivity : AppCompatActivity() {
                 ClipRelayService.ACTION_PAIRING_COMPLETE -> {
                     val deviceTag = intent.getStringExtra(ClipRelayService.EXTRA_DEVICE_TAG)
                     viewModel.onPaired(deviceTag)
+                    requestBatteryOptimizationAndOnboarding()
                 }
                 ClipRelayService.ACTION_CLIPBOARD_TRANSFER -> {
                     val fromMac = intent.getBooleanExtra(ClipRelayService.EXTRA_FROM_MAC, true)
                     viewModel.onClipboardTransfer(fromMac)
+                }
+                ClipRelayService.ACTION_VERSION_MISMATCH -> {
+                    viewModel.onVersionMismatch()
+                }
+                ClipRelayService.ACTION_RICH_MEDIA_SETTING_CHANGED -> {
+                    val enabled = intent.getBooleanExtra(ClipRelayService.EXTRA_RICH_MEDIA_ENABLED, false)
+                    viewModel.onImageSyncSettingChanged(enabled)
                 }
             }
         }
@@ -68,6 +80,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val batteryOptLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // Battery optimization dialog dismissed — now show onboarding
+        launchOnboardingIfNeeded()
+    }
+
+    private val onboardingLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            // Refresh auto-copy state after onboarding
+            viewModel.onAutoCopySettingChanged(clipboardSettingsStore.isAutoCopyEnabled())
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -75,7 +103,8 @@ class MainActivity : AppCompatActivity() {
         ensureServiceRunning()
         clipboardSettingsStore = ClipboardSettingsStore(this)
 
-        val secret = PairingStore(this).loadSharedSecret()
+        val pairingStore = PairingStore(this)
+        val secret = pairingStore.loadSharedSecret()
         val isPaired = secret != null
         val deviceName = getSharedPreferences(ClipRelayService.PREFS_NAME, MODE_PRIVATE)
             .getString(ClipRelayService.KEY_CONNECTED_DEVICE, null)
@@ -84,18 +113,31 @@ class MainActivity : AppCompatActivity() {
             hex.chunked(4).joinToString(" ")
         }
         val autoClearEnabled = clipboardSettingsStore.isAutoClearSyncedClipboardEnabled()
-        viewModel.initState(isPaired, deviceName, deviceTag, autoClearEnabled)
+        val autoCopyEnabled = clipboardSettingsStore.isAutoCopyEnabled()
+        val imageSyncEnabled = pairingStore.isRichMediaEnabled()
+        viewModel.initState(isPaired, deviceName, deviceTag, autoClearEnabled, autoCopyEnabled, imageSyncEnabled)
 
         setContent {
             val state by viewModel.state.collectAsState()
             val showBurst by viewModel.showBurst.collectAsState()
             val autoClearEnabled by viewModel.autoClearEnabled.collectAsState()
+            val autoCopyEnabled by viewModel.autoCopyEnabled.collectAsState()
+            val autoCopyAccessibilityEnabled by viewModel.autoCopyAccessibilityEnabled.collectAsState()
+            val imageSyncEnabled by viewModel.imageSyncEnabled.collectAsState()
+            val showVersionMismatch by viewModel.showVersionMismatch.collectAsState()
+
+            if (showVersionMismatch) {
+                VersionMismatchDialog(onDismiss = { viewModel.onVersionMismatchDismissed() })
+            }
 
             ClipRelayScreen(
                 state = state,
                 showBurst = showBurst,
                 clipboardTransferFlow = viewModel.clipboardTransfer,
                 autoClearEnabled = autoClearEnabled,
+                autoCopyEnabled = autoCopyEnabled,
+                autoCopyAccessibilityEnabled = autoCopyAccessibilityEnabled,
+                imageSyncEnabled = imageSyncEnabled,
                 onPairClick = {
                     scannerLauncher.launch(Intent(this, QrScannerActivity::class.java))
                 },
@@ -113,6 +155,30 @@ class MainActivity : AppCompatActivity() {
                 onAutoClearSettingChanged = { enabled ->
                     viewModel.onAutoClearSettingChanged(enabled)
                     clipboardSettingsStore.setAutoClearSyncedClipboardEnabled(enabled)
+                },
+                onAutoCopySettingChanged = { enabled ->
+                    if (enabled && !isAccessibilityServiceEnabled()) {
+                        // Turning on but accessibility not enabled — open settings
+                        val accessibilityIntent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        startActivity(accessibilityIntent)
+                    }
+                    viewModel.onAutoCopySettingChanged(enabled)
+                    clipboardSettingsStore.setAutoCopyEnabled(enabled)
+                },
+                onImageSyncSettingChanged = { enabled ->
+                    viewModel.onImageSyncSettingChanged(enabled)
+                    PairingStore(this).setRichMediaEnabled(enabled, System.currentTimeMillis() / 1000)
+                    val configIntent = Intent(this, ClipRelayService::class.java)
+                    configIntent.action = ClipRelayService.ACTION_SEND_CONFIG_UPDATE
+                    startServiceSafely(configIntent)
+                },
+                onAutoCopyFixClick = {
+                    // Broken state: row tapped — open accessibility settings to fix
+                    val accessibilityIntent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                    startActivity(accessibilityIntent)
+                },
+                onHelpClick = {
+                    onboardingLauncher.launch(Intent(this, AutoCopyOnboardingActivity::class.java))
                 }
             )
         }
@@ -123,6 +189,8 @@ class MainActivity : AppCompatActivity() {
         val filter = IntentFilter(ClipRelayService.ACTION_CONNECTION_STATE).also {
             it.addAction(ClipRelayService.ACTION_PAIRING_COMPLETE)
             it.addAction(ClipRelayService.ACTION_CLIPBOARD_TRANSFER)
+            it.addAction(ClipRelayService.ACTION_VERSION_MISMATCH)
+            it.addAction(ClipRelayService.ACTION_RICH_MEDIA_SETTING_CHANGED)
         }
         ContextCompat.registerReceiver(
             this,
@@ -130,6 +198,8 @@ class MainActivity : AppCompatActivity() {
             filter,
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        viewModel.onAccessibilityStateChanged(isAccessibilityServiceEnabled())
+        viewModel.onImageSyncSettingChanged(PairingStore(this).isRichMediaEnabled())
         val queryIntent = Intent(this, ClipRelayService::class.java)
         queryIntent.action = ClipRelayService.ACTION_QUERY_CONNECTION
         startServiceSafely(queryIntent)
@@ -153,6 +223,35 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Could not start ClipRelay service", Toast.LENGTH_SHORT).show()
         }
         return started
+    }
+
+    private fun requestBatteryOptimizationAndOnboarding() {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (pm.isIgnoringBatteryOptimizations(packageName)) {
+            // Already exempt — go straight to onboarding
+            launchOnboardingIfNeeded()
+            return
+        }
+
+        // Launch battery optimization dialog; onboarding follows in the result callback
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:$packageName")
+        }
+        batteryOptLauncher.launch(intent)
+    }
+
+    private fun launchOnboardingIfNeeded() {
+        if (clipboardSettingsStore.isAutoCopyOnboardingShown()) return
+        onboardingLauncher.launch(Intent(this, AutoCopyOnboardingActivity::class.java))
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val service = "${packageName}/${ClipboardAccessibilityService::class.java.canonicalName}"
+        val enabledServices = android.provider.Settings.Secure.getString(
+            contentResolver,
+            android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        return enabledServices.contains(service)
     }
 
     private fun requestRuntimePermissions() {

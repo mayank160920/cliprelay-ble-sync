@@ -10,6 +10,9 @@ final class StatusBarController {
     var onForgetDeviceRequested: ((String) -> Void)?
     var onToggleLaunchAtLogin: (() -> Void)?
     var isLaunchAtLoginEnabled: (() -> Bool)?
+    var onToggleImageSync: (() -> Void)?
+    var isImageSyncEnabled: (() -> Bool)?
+    var isDeviceConnected: (() -> Bool)?
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
@@ -17,6 +20,7 @@ final class StatusBarController {
 
     private var connectedPeers: [PeerSummary] = []
     private var trustedPeers: [PeerSummary] = []
+    private var bluetoothWarning: String?
 
     private static let brandAqua = NSColor(red: 0, green: 1, blue: 0.835, alpha: 1) // #00FFD5
 
@@ -70,6 +74,11 @@ final class StatusBarController {
         renderMenu()
     }
 
+    func setBluetoothWarning(_ warning: String?) {
+        bluetoothWarning = warning
+        renderMenu()
+    }
+
 
     /// Briefly pulses the status bar icon to indicate a clipboard sync.
     func flashSyncIndicator() {
@@ -105,6 +114,14 @@ final class StatusBarController {
     private func renderMenu() {
         menu.removeAllItems()
 
+        if let bluetoothWarning {
+            let warningItem = NSMenuItem(title: bluetoothWarning, action: nil, keyEquivalent: "")
+            warningItem.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "warning")
+            warningItem.isEnabled = false
+            menu.addItem(warningItem)
+            menu.addItem(NSMenuItem.separator())
+        }
+
         renderTrustedDevicesSection()
         menu.addItem(NSMenuItem.separator())
 
@@ -128,6 +145,20 @@ final class StatusBarController {
             launchItem.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "enabled")
         }
         menu.addItem(launchItem)
+
+        let deviceConnected = isDeviceConnected?() ?? false
+        let imageSyncItem = NSMenuItem(
+            title: "Image Sync (experimental)",
+            action: deviceConnected ? #selector(handleToggleImageSync) : nil,
+            keyEquivalent: ""
+        )
+        imageSyncItem.target = self
+        if !deviceConnected {
+            imageSyncItem.isEnabled = false
+        } else if isImageSyncEnabled?() == true {
+            imageSyncItem.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "enabled")
+        }
+        menu.addItem(imageSyncItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -235,6 +266,12 @@ final class StatusBarController {
     @objc
     private func handleToggleLaunchAtLogin() {
         onToggleLaunchAtLogin?()
+        renderMenu()
+    }
+
+    @objc
+    private func handleToggleImageSync() {
+        onToggleImageSync?()
         renderMenu()
     }
 

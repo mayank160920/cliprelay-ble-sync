@@ -1,20 +1,48 @@
-# ClipRelay
+<p align="center">
+  <img src="docs/images/banner.png" alt="ClipRelay" width="480">
+</p>
 
-Seamless, encrypted clipboard sharing between Mac and Android over Bluetooth.
+<p align="center">
+  <strong>Universal clipboard for Android and Mac</strong><br>
+  Encrypted, Bluetooth-only, no cloud.
+</p>
 
-- **End-to-end encrypted** — ECDH key exchange (X25519) with AES-256-GCM encryption
+<p align="center">
+  <a href="https://cliprelay.org/beta.html">Join Android Beta</a> &bull;
+  <a href="https://cliprelay.org/#download">Download for Mac</a> &bull;
+  <a href="https://cliprelay.org">Website</a>
+</p>
+
+---
+
+Copy on one device, paste on the other. ClipRelay syncs your clipboard between Android and Mac over Bluetooth Low Energy — no cloud, no servers, no accounts.
+
+- **End-to-end encrypted** — AES-256-GCM encryption. ECDH key exchange (X25519) during pairing.
 - **Bluetooth only** — direct BLE transfer, no WiFi or internet needed
 - **No cloud, no servers** — your clipboard data never leaves the connection between your devices
-- **Text only** — up to 100 KiB per transfer
+- **Text clipboard** — up to 100 KiB per transfer over BLE
+- **Image sync** *(experimental)* — transfer images (PNG/JPEG, up to 10 MB) between devices over a temporary local WiFi connection, with BLE for signaling. Both devices must be on the same WiFi network.
+- **Auto-copy on Android** *(experimental)* — automatically detects when you copy text on Android and syncs it to your Mac, no manual sharing needed. Uses Android's accessibility service.
 
-## Download
+## Screenshots
 
-The easiest way to get ClipRelay is from the official releases:
+<p align="center">
+  <img src="docs/images/android-connected.png" alt="ClipRelay Android app" height="400">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/android-share.png" alt="Android Share menu with ClipRelay direct share" height="400">
+</p>
 
-- **Android** — [Join the beta on Google Play](https://cliprelay.org/beta.html)
-- **Mac** — [Download the DMG](https://cliprelay.org/downloads/ClipRelay.dmg)
+<p align="center">
+  <em>Android app &nbsp;&bull;&nbsp; Share menu with direct share to Mac</em>
+</p>
 
-For more details, visit [cliprelay.org](https://cliprelay.org).
+<p align="center">
+  <img src="docs/images/mac-menubar.png" alt="ClipRelay Mac menu bar" width="420">
+</p>
+
+<p align="center">
+  <em>Mac menu bar</em>
+</p>
 
 ## How it works
 
@@ -24,6 +52,14 @@ For more details, visit [cliprelay.org](https://cliprelay.org).
 4. Done — clipboard sharing is automatic:
    - **Mac to Android:** copy text on Mac, it syncs automatically.
    - **Android to Mac:** select text on Android, Share → ClipRelay.
+
+### Image sync *(experimental)*
+
+Image transfer uses a temporary TCP connection over your local WiFi (not Bluetooth) for speed. Both devices must be on the same WiFi network. Enable "Image Sync" in the paired device settings on both devices. When you copy an image on your Mac or share one from Android, it transfers encrypted over your local network — still AES-256-GCM encrypted, still no cloud.
+
+### Auto-copy on Android *(experimental)*
+
+By default, Android clipboard sharing requires manually using Share → ClipRelay. With auto-copy enabled, ClipRelay detects when you copy text on Android and automatically syncs it to your Mac — just like the Mac-to-Android direction. Enable it in the Android app settings. This feature requires granting the Accessibility Service permission.
 
 ## Building from source
 

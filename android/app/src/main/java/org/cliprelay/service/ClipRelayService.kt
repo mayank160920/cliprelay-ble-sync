@@ -13,12 +13,16 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.graphics.drawable.IconCompat
 import org.cliprelay.R
 import org.cliprelay.ble.Advertiser
 import org.cliprelay.ble.L2capServer
@@ -27,14 +31,15 @@ import org.cliprelay.crypto.E2ECrypto
 import org.cliprelay.debug.DebugSmokeProbe
 import org.cliprelay.permissions.BlePermissions
 import org.cliprelay.pairing.PairingStore
+import org.cliprelay.protocol.ProtocolException
 import org.cliprelay.protocol.Session
 import org.cliprelay.protocol.SessionCallback
 import org.cliprelay.protocol.SessionMode
+import org.cliprelay.protocol.VersionMismatchException
 import org.cliprelay.settings.ClipboardSettingsStore
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.Executors
-import javax.crypto.SecretKey
 
 class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
     companion object {
@@ -52,11 +57,22 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         const val EXTRA_DEVICE_TAG = "extra_device_tag"
         const val EXTRA_FROM_MAC = "extra_from_mac"
 
+        const val ACTION_VERSION_MISMATCH = "org.cliprelay.action.VERSION_MISMATCH"
+        const val ACTION_GHOST_FINISHED = "org.cliprelay.action.GHOST_FINISHED"
+        const val ACTION_ACCESSIBILITY_COPY_DETECTED = "org.cliprelay.action.ACCESSIBILITY_COPY_DETECTED"
+        const val ACTION_SEND_CONFIG_UPDATE = "org.cliprelay.action.SEND_CONFIG_UPDATE"
+        const val ACTION_PUSH_IMAGE = "org.cliprelay.action.PUSH_IMAGE"
+        const val EXTRA_IMAGE_PATH = "extra_image_path"
+        const val EXTRA_MIME_TYPE = "extra_mime_type"
+        const val ACTION_RICH_MEDIA_SETTING_CHANGED = "org.cliprelay.action.RICH_MEDIA_SETTING_CHANGED"
+        const val EXTRA_RICH_MEDIA_ENABLED = "extra_rich_media_enabled"
+
         const val PREFS_NAME = "cliprelay_state"
         const val KEY_CONNECTED_DEVICE = "connected_device_name"
 
         private const val TAG = "ClipRelayService"
         private const val MAX_CLIPBOARD_BYTES = 102_400
+        private const val CLIPBOARD_DEBOUNCE_MS = 200L
     }
 
     // BLE components
@@ -68,11 +84,14 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
     private var activeSession: Session? = null
     private var sessionThread: Thread? = null
 
-    // Crypto
-    @Volatile
-    private var encryptionKey: SecretKey? = null
+    // Pairing state
+    private val isPaired: Boolean get() = pairingStore.loadSharedSecret() != null
     @Volatile
     private var lastInboundHash: String? = null
+    @Volatile
+    private var lastSentTextHash: String? = null
+    @Volatile
+    private var lastReceivedImageHash: String? = null
 
     // Support
     private lateinit var clipboardWriter: ClipboardWriter
@@ -90,6 +109,12 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
     private var pairingInProgress = false
     private var pendingPairingKeyPair: java.security.KeyPair? = null
     private var pendingMacPublicKeyRaw: ByteArray? = null
+
+    // Auto-copy state (guards for ghost activity launches)
+    @Volatile
+    private var lastClipboardLaunchMs = 0L
+    @Volatile
+    private var ghostActivityInFlight = false
 
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -120,8 +145,18 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         DebugSmokeProbe.reset(this)
 
         startForeground(1001, buildNotification())
-        registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+        ContextCompat.registerReceiver(
+            this,
+            bluetoothStateReceiver,
+            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
         ensureBleComponentsState()
+
+        // Publish direct share shortcut if already paired
+        if (isPaired) {
+            publishDirectShareShortcut(loadConnectedDeviceName())
+        }
     }
 
     override fun onDestroy() {
@@ -148,7 +183,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
             ACTION_RELOAD_PAIRING -> {
                 // RELOAD_PAIRING handles its own BLE lifecycle — skip the
                 // general ensureBleComponentsState() to avoid a double-start.
-                if (encryptionKey == null) {
+                if (!isPaired) {
                     if (bleStarted) {
                         stopBleComponents()
                     }
@@ -164,7 +199,29 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
                 }
                 return START_STICKY
             }
+            ACTION_GHOST_FINISHED -> {
+                clearGhostActivityInFlight()
+                return START_STICKY
+            }
+            ACTION_ACCESSIBILITY_COPY_DETECTED -> {
+                handleClipboardChanged()
+                return START_STICKY
+            }
+            ACTION_SEND_CONFIG_UPDATE -> {
+                activeSession?.sendConfigUpdate()
+                return START_STICKY
+            }
+            ACTION_PUSH_IMAGE -> {
+                val imagePath = intent.getStringExtra(EXTRA_IMAGE_PATH)
+                val mimeType = intent.getStringExtra(EXTRA_MIME_TYPE) ?: "image/png"
+                if (imagePath != null) {
+                    executor.execute {
+                        pushImageToMac(imagePath, mimeType)
+                    }
+                }
+            }
             ACTION_PUSH_TEXT -> {
+                clearGhostActivityInFlight()
                 val text = intent.getStringExtra(EXTRA_TEXT)
                 if (!text.isNullOrBlank()) {
                     executor.execute {
@@ -188,7 +245,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
     // ── BLE stack management ──────────────────────────────────────────
 
     private fun ensureBleComponentsState(restartIfRunning: Boolean = false) {
-        if (encryptionKey == null && !pairingInProgress) {
+        if (!isPaired && !pairingInProgress) {
             if (bleStarted) {
                 Log.w(TAG, "Shared secret missing; stopping BLE components")
                 stopBleComponents()
@@ -216,7 +273,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
     }
 
     private fun startBle() {
-        Log.w(TAG, "startBle() — encryptionKey=${if (encryptionKey != null) "set" else "null"}")
+        Log.w(TAG, "startBle() — isPaired=$isPaired")
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
         val adapter = bluetoothManager?.adapter
         if (adapter == null) {
@@ -245,9 +302,8 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
                         .copyOfRange(0, 8)
                 }
             } else {
-                encryptionKey?.let {
-                    val secret = pairingStore.loadSharedSecret()
-                    if (secret != null) E2ECrypto.deviceTag(E2ECrypto.hexToBytes(secret)) else null
+                pairingStore.loadSharedSecret()?.let { secret ->
+                    E2ECrypto.deviceTag(E2ECrypto.hexToBytes(secret))
                 }
             }
             adv.start()
@@ -300,10 +356,8 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         val secret = pairingStore.loadSharedSecret()
         if (secret != null) {
             val secretBytes = E2ECrypto.hexToBytes(secret)
-            encryptionKey = E2ECrypto.deriveKey(secretBytes)
             advertiser?.deviceTag = E2ECrypto.deviceTag(secretBytes)
         } else {
-            encryptionKey = null
             advertiser?.deviceTag = null
             saveConnectedDeviceName(null)
         }
@@ -340,11 +394,14 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         }
 
         // Create new session (Android is the responder)
+        val secret = if (pairingInProgress) null else pairingStore.loadSharedSecret()
         val session = Session(
             socket.inputStream, socket.outputStream,
             isInitiator = false,
             this,  // SessionCallback
-            mode = mode
+            mode = mode,
+            sharedSecretHex = secret,
+            settingsProvider = pairingStore
         )
         session.localName = android.os.Build.MODEL
         activeSession = session
@@ -383,25 +440,21 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         // advertising without risking the active L2CAP connection.
         advertiser?.restart()
 
+        // The HELLO/WELCOME handshake carries the remote device name. Persist
+        // it so the UI always shows the real hostname (e.g. "Christian's Mac")
+        // instead of null — during pairing, KEY_CONFIRM doesn't include a name
+        // so this is the first point where the Mac's name is available.
+        activeSession?.remoteName?.let {
+            saveConnectedDeviceName(it)
+            publishDirectShareShortcut(it)
+        }
+
         val name = loadConnectedDeviceName()
         sendConnectionBroadcast(true, name)
         DebugSmokeProbe.onConnectionChanged(this, true)
     }
 
-    override fun onClipboardReceived(encryptedBlob: ByteArray, hash: String) {
-        val key = encryptionKey
-        if (key == null) {
-            Log.w(TAG, "No encryption key; ignoring incoming clipboard")
-            return
-        }
-
-        val plaintext = try {
-            E2ECrypto.open(encryptedBlob, key)
-        } catch (e: Exception) {
-            Log.e(TAG, "Decryption failed: ${e.message}")
-            return
-        }
-
+    override fun onClipboardReceived(plaintext: ByteArray, hash: String) {
         val decodedText = plaintext.toString(Charsets.UTF_8)
         if (decodedText.isEmpty()) return
 
@@ -423,6 +476,12 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         sessionThread = null
         sendConnectionBroadcast(false)
         DebugSmokeProbe.onConnectionChanged(this, false)
+
+        if (error is VersionMismatchException) {
+            val intent = Intent(ACTION_VERSION_MISMATCH)
+            intent.setPackage(packageName)
+            sendBroadcast(intent)
+        }
         // L2CAP server is still listening, will accept next connection
     }
 
@@ -436,9 +495,6 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
 
         // Store the shared secret
         pairingStore.saveSharedSecret(secretHex)
-
-        // Update encryption key
-        encryptionKey = E2ECrypto.deriveKey(sharedSecret)
 
         // Update the device tag for future advertisements, but do NOT restart
         // advertising now — the HELLO/WELCOME handshake is still in progress on
@@ -472,6 +528,38 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         pairingIntent.putExtra(EXTRA_DEVICE_TAG, deviceTagHex)
         pairingIntent.putExtra(EXTRA_DEVICE_NAME, remoteName)
         sendBroadcast(pairingIntent)
+        publishDirectShareShortcut(remoteName)
+    }
+
+    override fun onRichMediaSettingChanged(enabled: Boolean) {
+        val intent = Intent(ACTION_RICH_MEDIA_SETTING_CHANGED)
+        intent.setPackage(packageName)
+        intent.putExtra(EXTRA_RICH_MEDIA_ENABLED, enabled)
+        sendBroadcast(intent)
+    }
+
+    override fun onImageSendFailed(reason: String) {
+        Log.w(TAG, "Image send failed: $reason")
+        Handler(Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(
+                this,
+                "Could not transfer image. Make sure both devices are on the same Wi-Fi network.",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    override fun onImageReceived(data: ByteArray, contentType: String, hash: String) {
+        lastReceivedImageHash = hash
+        Log.w(TAG, "Received image from Mac (${data.size} bytes, $contentType)")
+        clipboardWriter.writeImage(data, contentType)
+        sendClipboardTransferBroadcast(fromMac = true)
+    }
+
+    override fun isDeviceAwake(): Boolean {
+        val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+        return pm.isInteractive && !km.isDeviceLocked
     }
 
     // ── Outbound (Android → Mac) ─────────────────────────────────────
@@ -483,27 +571,63 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
             return
         }
 
+        // Dedup: skip if we already sent this exact text
+        val textHash = MessageDigest.getInstance("SHA-256")
+            .digest(plaintext).joinToString("") { "%02x".format(it) }
+        if (textHash == lastSentTextHash) {
+            Log.d(TAG, "Skipping send — same text already sent")
+            return
+        }
+        lastSentTextHash = textHash
+
         val session = activeSession
         if (session == null) {
             Log.d(TAG, "No active L2CAP session; skipping Android->Mac push")
             return
         }
 
-        val key = encryptionKey
-        if (key == null) {
-            Log.w(TAG, "No encryption key; skipping Android->Mac push")
-            return
-        }
-
-        val encrypted = try {
-            E2ECrypto.seal(plaintext, key)
-        } catch (e: Exception) {
-            Log.e(TAG, "Encryption failed: ${e.message}")
-            return
-        }
-
-        session.sendClipboard(encrypted)
+        session.sendClipboard(plaintext)
         DebugSmokeProbe.onOutboundClipboardPublished(this, text)
+    }
+
+    private fun pushImageToMac(imagePath: String, mimeType: String) {
+        if (isDestroyed) return
+        val file = java.io.File(imagePath)
+        if (!file.exists()) {
+            Log.e(TAG, "Image file not found: $imagePath")
+            return
+        }
+        val imageData = file.readBytes()
+        file.delete() // clean up cache file after reading
+
+        val maxSize = 10_485_760 // 10 MB
+        if (imageData.isEmpty() || imageData.size > maxSize) {
+            Log.w(TAG, "Image too large or empty: ${imageData.size} bytes")
+            Handler(Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(this, "Image too large to send (max 10 MB)", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        val session = activeSession
+        if (session == null) {
+            Log.w(TAG, "No active session; cannot send image")
+            Handler(Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(this, "Not connected to Mac", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        if (!pairingStore.isRichMediaEnabled()) {
+            Log.w(TAG, "Rich media not enabled; cannot send image")
+            Handler(Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(this, "Image sync is not enabled", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        session.sendImage(imageData, mimeType)
+        Log.w(TAG, "Queued image for send (${imageData.size} bytes, $mimeType)")
     }
 
     // ── Pairing ────────────────────────────────────────────────────────
@@ -536,6 +660,9 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         val hadConnection = bleStarted
 
         pairingStore.clear()
+        clipboardSettingsStore.setAutoCopyOnboardingShown(false)
+        clipboardSettingsStore.setAutoCopyEnabled(false)
+        removeDirectShareShortcut()
         loadPairingState()
 
         if (hadConnection) {
@@ -566,6 +693,73 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         }
         pendingClipboardAutoClear = clearRunnable
         clipboardAutoClearHandler.postDelayed(clearRunnable, ClipboardSettingsStore.AUTO_CLEAR_DELAY_MS)
+    }
+
+    // ── Auto-copy (triggered by AccessibilityService) ────────────────
+
+    private fun handleClipboardChanged() {
+        Log.d(TAG, "Clipboard changed — activeSession=${activeSession != null}, ghostInFlight=$ghostActivityInFlight")
+
+        // Skip if no active session (no Mac connected)
+        if (activeSession == null) {
+            Log.d(TAG, "Skipping clipboard: no active session")
+            return
+        }
+
+        // 200ms time guard to prevent double-fires from text classification
+        val now = System.currentTimeMillis()
+        if (now - lastClipboardLaunchMs < CLIPBOARD_DEBOUNCE_MS) {
+            Log.d(TAG, "Skipping clipboard: debounce (${now - lastClipboardLaunchMs}ms)")
+            return
+        }
+        lastClipboardLaunchMs = now
+
+        // Skip if ghost activity is already in flight
+        if (ghostActivityInFlight) {
+            Log.d(TAG, "Skipping clipboard: ghost activity in flight")
+            return
+        }
+
+        // Always launch ghost activity — even when the app is "foreground" per
+        // ProcessLifecycleOwner, a Service cannot read the clipboard on Android 10+.
+        // Only an Activity with window focus can call getPrimaryClip() successfully.
+        Log.d(TAG, "Launching ghost activity for clipboard read")
+        ghostActivityInFlight = true
+        val ghostIntent = Intent(this, ClipboardGhostActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_NO_ANIMATION or
+                    Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+        }
+        startActivity(ghostIntent)
+    }
+
+    fun clearGhostActivityInFlight() {
+        ghostActivityInFlight = false
+    }
+
+    // ── Direct Share shortcut ─────────────────────────────────────────
+
+    private fun publishDirectShareShortcut(deviceName: String?) {
+        val label = deviceName ?: "Mac"
+        val shortcut = ShortcutInfoCompat.Builder(this, "send_to_mac")
+            .setShortLabel(label)
+            .setIcon(IconCompat.createWithResource(this, R.mipmap.ic_launcher))
+            .setIntent(Intent(Intent.ACTION_SEND).apply {
+                setClass(this@ClipRelayService, org.cliprelay.ui.ShareReceiverActivity::class.java)
+                type = "*/*"
+                putExtra(Intent.EXTRA_TEXT, "")
+            })
+            .setCategories(setOf("org.cliprelay.category.SEND_TO_MAC"))
+            .setLongLived(true)
+            .build()
+
+        ShortcutManagerCompat.addDynamicShortcuts(this, listOf(shortcut))
+        Log.d(TAG, "Published direct share shortcut: $label")
+    }
+
+    private fun removeDirectShareShortcut() {
+        ShortcutManagerCompat.removeDynamicShortcuts(this, listOf("send_to_mac"))
+        Log.d(TAG, "Removed direct share shortcut")
     }
 
     // ── Broadcasts ────────────────────────────────────────────────────

@@ -146,7 +146,7 @@ build_mac() {
   <key>LSUIElement</key>
   <true/>
   <key>SUFeedURL</key>
-  <string>https://raw.githubusercontent.com/geekflyer/cliprelay/main/sparkle/appcast.xml</string>
+  <string>https://raw.githubusercontent.com/geekflyer/cliprelay/sparkle/appcast.xml</string>
   ${SPARKLE_PLIST_KEYS}
 </dict>
 </plist>
@@ -185,17 +185,11 @@ build_android() {
     exit 1
   fi
 
-  ANDROID_VERSION_CODE=$(git tag -l 'android/v*' | wc -l | tr -d ' ')
-  local gradle_version_arg=""
-  if [[ "$ANDROID_VERSION_CODE" -gt 0 ]]; then
-    gradle_version_arg="-PcliVersionCode=$ANDROID_VERSION_CODE"
-  fi
-
   if [[ "$ANDROID_RELEASE" == true ]]; then
     echo "==> Building Android release AAB/APK"
     (
       cd "$ANDROID_PROJECT_DIR"
-      ./gradlew clean bundleRelease assembleRelease $gradle_version_arg
+      ./gradlew clean bundleRelease assembleRelease
     )
 
     local aab_path="$ANDROID_PROJECT_DIR/app/build/outputs/bundle/release/app-release.aab"
@@ -219,7 +213,7 @@ build_android() {
     echo "==> Building Android debug APK"
     (
       cd "$ANDROID_PROJECT_DIR"
-      ./gradlew assembleDebug $gradle_version_arg
+      ./gradlew assembleDebug
     )
 
     local apk_path="$ANDROID_PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"

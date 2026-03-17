@@ -11,6 +11,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,12 +26,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -53,10 +60,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -79,10 +83,17 @@ fun ClipRelayScreen(
     showBurst: Boolean,
     clipboardTransferFlow: Flow<Boolean> = emptyFlow(),
     autoClearEnabled: Boolean,
+    autoCopyEnabled: Boolean,
+    autoCopyAccessibilityEnabled: Boolean = false,
+    imageSyncEnabled: Boolean = false,
     onPairClick: () -> Unit,
     onUnpairClick: () -> Unit,
     onBurstShown: () -> Unit,
     onAutoClearSettingChanged: (Boolean) -> Unit,
+    onAutoCopySettingChanged: (Boolean) -> Unit,
+    onImageSyncSettingChanged: (Boolean) -> Unit = {},
+    onAutoCopyFixClick: () -> Unit = {},
+    onHelpClick: () -> Unit = {},
 ) {
     val isConnected = state is AppState.Connected
     val isPaired = state !is AppState.Unpaired
@@ -155,12 +166,18 @@ fun ClipRelayScreen(
                 state = state,
                 clipboardTransferFlow = clipboardTransferFlow,
                 autoClearEnabled = autoClearEnabled,
+                autoCopyEnabled = autoCopyEnabled,
+                autoCopyAccessibilityEnabled = autoCopyAccessibilityEnabled,
+                imageSyncEnabled = imageSyncEnabled,
                 onPairClick = onPairClick,
                 onUnpairClick = onUnpairClick,
-                onAutoClearSettingChanged = onAutoClearSettingChanged
+                onAutoClearSettingChanged = onAutoClearSettingChanged,
+                onAutoCopySettingChanged = onAutoCopySettingChanged,
+                onImageSyncSettingChanged = onImageSyncSettingChanged,
+                onAutoCopyFixClick = onAutoCopyFixClick
             )
             Spacer(modifier = Modifier.weight(1f))
-            FooterSection()
+            FooterSection(isPaired = isPaired, onHelpClick = onHelpClick)
         }
 
         // Pairing burst overlay
@@ -261,9 +278,15 @@ private fun MainCard(
     state: AppState,
     clipboardTransferFlow: Flow<Boolean>,
     autoClearEnabled: Boolean,
+    autoCopyEnabled: Boolean,
+    autoCopyAccessibilityEnabled: Boolean = false,
+    imageSyncEnabled: Boolean = false,
     onPairClick: () -> Unit,
     onUnpairClick: () -> Unit,
-    onAutoClearSettingChanged: (Boolean) -> Unit
+    onAutoClearSettingChanged: (Boolean) -> Unit,
+    onAutoCopySettingChanged: (Boolean) -> Unit,
+    onImageSyncSettingChanged: (Boolean) -> Unit = {},
+    onAutoCopyFixClick: () -> Unit = {}
 ) {
     val isPaired = state !is AppState.Unpaired
     val isConnected = state is AppState.Connected
@@ -315,48 +338,50 @@ private fun MainCard(
                 color = borderColor,
                 shape = RoundedCornerShape(28.dp)
             )
-            .padding(start = 24.dp, end = 24.dp, top = 36.dp, bottom = 28.dp)
+            .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 24.dp)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // App icon above title
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Aqua),
-                contentAlignment = Alignment.Center
+            // App icon + title inline, centered
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Image(
-                    painter = painterResource(R.mipmap.ic_launcher_foreground),
-                    contentDescription = "ClipRelay icon",
-                    modifier = Modifier.size(64.dp)
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(15.dp))
+                        .background(Aqua),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(R.mipmap.ic_launcher_foreground),
+                        contentDescription = "ClipRelay icon",
+                        modifier = Modifier.size(48.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "ClipRelay",
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Teal
                 )
             }
-            Spacer(modifier = Modifier.height(12.dp))
-            // Title
-            Text(
-                text = "ClipRelay",
-                fontSize = 34.sp,
-                fontWeight = FontWeight.Bold,
-                color = Teal,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Seamless clipboard sharing with your Mac",
-                fontSize = 15.sp,
+                fontSize = 13.sp,
                 color = if (isPaired) Teal.copy(alpha = 0.45f) else Color(0x66000000),
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
             HorizontalDivider(
                 color = if (isPaired) Color(0x1400FFD5) else Color(0x0F00FFD5),
                 thickness = 1.dp
             )
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Device row with background lock watermark when connected
             val lockAlpha by animateColorAsState(
@@ -460,7 +485,7 @@ private fun MainCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Action button
             if (!isPaired) {
@@ -517,6 +542,18 @@ private fun MainCard(
                 enabled = autoClearEnabled,
                 onEnabledChange = onAutoClearSettingChanged
             )
+            Spacer(modifier = Modifier.height(8.dp))
+            ImageSyncSettingRow(
+                enabled = imageSyncEnabled,
+                onEnabledChange = onImageSyncSettingChanged
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            AutoCopySettingRow(
+                enabled = autoCopyEnabled,
+                accessibilityEnabled = autoCopyAccessibilityEnabled,
+                onEnabledChange = onAutoCopySettingChanged,
+                onFixClick = onAutoCopyFixClick
+            )
         }
     }
 }
@@ -554,6 +591,149 @@ private fun AutoClearSettingRow(
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = stringResource(R.string.auto_clear_setting_subtitle),
+                fontSize = 12.sp,
+                color = Color(0x80000000),
+                lineHeight = 16.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Switch(
+            checked = enabled,
+            onCheckedChange = onEnabledChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Teal,
+                checkedTrackColor = Aqua.copy(alpha = 0.45f),
+                checkedBorderColor = Aqua.copy(alpha = 0.60f),
+                uncheckedThumbColor = Color(0xFF7A7A7A),
+                uncheckedTrackColor = Color(0x15000000),
+                uncheckedBorderColor = Color(0x40000000)
+            )
+        )
+    }
+}
+
+@Composable
+private fun AutoCopySettingRow(
+    enabled: Boolean,
+    accessibilityEnabled: Boolean = false,
+    onEnabledChange: (Boolean) -> Unit,
+    onFixClick: () -> Unit = {}
+) {
+    val isBroken = enabled && !accessibilityEnabled
+    val warningColor = Color(0xFFE57373)
+
+    val toggleBg = if (enabled) Color(0x1400FFD5) else Color(0x08000000)
+    val toggleBorder = when {
+        isBroken -> warningColor.copy(alpha = 0.5f)
+        enabled -> Color(0x2B00FFD5)
+        else -> Color(0x14000000)
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(toggleBg)
+            .border(if (isBroken) 2.dp else 1.dp, toggleBorder, RoundedCornerShape(18.dp))
+            .then(
+                if (isBroken)
+                    // In broken state, tapping the row opens accessibility settings
+                    Modifier.clickable(onClick = onFixClick)
+                else
+                    Modifier.toggleable(
+                        value = enabled,
+                        role = Role.Switch,
+                        onValueChange = onEnabledChange
+                    )
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (isBroken) {
+            Text(
+                text = "\u26A0\uFE0F",
+                fontSize = 24.sp,
+                modifier = Modifier.padding(end = 10.dp)
+            )
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.auto_copy_setting_title),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xCC000000)
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = if (isBroken)
+                    stringResource(R.string.auto_copy_needs_accessibility)
+                else if (enabled)
+                    stringResource(R.string.auto_copy_setting_subtitle_on)
+                else
+                    stringResource(R.string.auto_copy_setting_subtitle_off),
+                fontSize = 12.sp,
+                fontWeight = if (isBroken) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isBroken) warningColor else Color(0x80000000),
+                lineHeight = 16.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        // In broken state, switch toggles off (disables auto-copy)
+        // In normal state, switch toggles on/off as usual
+        Switch(
+            checked = enabled,
+            onCheckedChange = onEnabledChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Teal,
+                checkedTrackColor = Aqua.copy(alpha = 0.45f),
+                checkedBorderColor = Aqua.copy(alpha = 0.60f),
+                uncheckedThumbColor = Color(0xFF7A7A7A),
+                uncheckedTrackColor = Color(0x15000000),
+                uncheckedBorderColor = Color(0x40000000)
+            )
+        )
+    }
+}
+
+@Composable
+private fun ImageSyncSettingRow(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    val toggleBg = if (enabled) Color(0x1400FFD5) else Color(0x08000000)
+    val toggleBorder = if (enabled) Color(0x2B00FFD5) else Color(0x14000000)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(toggleBg)
+            .border(1.dp, toggleBorder, RoundedCornerShape(18.dp))
+            .toggleable(
+                value = enabled,
+                role = Role.Switch,
+                onValueChange = onEnabledChange
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.image_sync_setting_title),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xCC000000)
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = stringResource(R.string.image_sync_setting_subtitle),
                 fontSize = 12.sp,
                 color = Color(0x80000000),
                 lineHeight = 16.sp
@@ -714,58 +894,52 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMacIcon(tint: C
 
 // ─── Footer ──────────────────────────────────────────────────────────────────
 @Composable
-private fun FooterSection() {
+private fun FooterSection(isPaired: Boolean, onHelpClick: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp)
     ) {
-        Text(
-            text = buildAnnotatedString {
-                append("To share with your Mac, tap ")
-                withStyle(SpanStyle(
-                    color = Teal,
-                    fontWeight = FontWeight.SemiBold,
-                    background = Aqua.copy(alpha = 0.12f)
-                )) {
-                    append(" Share ")
-                }
-                append(" in any app and look for:")
-            },
-            fontSize = 13.sp,
-            color = Color(0x80000000),
-            textAlign = TextAlign.Center,
-            lineHeight = 20.sp
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        // Share sheet preview mock — vertical layout matching Android share sheet
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(Aqua),
-                contentAlignment = Alignment.Center
+        if (isPaired) {
+            Button(
+                onClick = onHelpClick,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0x1400FFD5),
+                    contentColor = Teal
+                ),
+                elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp)
             ) {
-                Image(
-                    painter = painterResource(R.mipmap.ic_launcher_foreground),
-                    contentDescription = "ClipRelay icon",
-                    modifier = Modifier.size(48.dp)
+                Text(
+                    text = "\uD83D\uDCA1 How to share",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(vertical = 4.dp)
                 )
             }
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "ClipRelay",
-                fontSize = 12.sp,
-                color = Color(0x99000000)
-            )
+            Spacer(modifier = Modifier.height(8.dp))
         }
-        Spacer(modifier = Modifier.height(12.dp))
         Text(
-            text = "v${BuildConfig.VERSION_NAME} (${BuildConfig.GIT_HASH})",
+            text = "ClipRelay v${BuildConfig.VERSION_NAME} (${BuildConfig.GIT_HASH})",
             style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
             color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+// ─── Version Mismatch Dialog ──────────────────────────────────────────────────
+@Composable
+fun VersionMismatchDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Update Required") },
+        text = {
+            Text("Your Mac app needs to be updated to continue syncing. Download the latest version at cliprelay.org.")
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("OK")
+            }
+        }
+    )
 }

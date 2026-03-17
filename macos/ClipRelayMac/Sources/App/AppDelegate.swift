@@ -1,6 +1,7 @@
 // Core app delegate: wires together BLE, clipboard, pairing, and UI subsystems.
 
 import AppKit
+import CoreBluetooth
 import CryptoKit
 import os
 import ServiceManagement
@@ -26,13 +27,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var activeSession: Session?
     private var sessionThread: Thread?
     private var connectedSecret: String?
+    private var activeSettingsProvider: DeviceSettingsProvider?
     private var pendingClipboardPayload: Data?
 
     // Dedup: hash of the last clipboard we received from the remote side
     private var lastReceivedHash: String?
+    private var lastReceivedImageHash: String?
 
     private var clipboardMonitor: ClipboardMonitor?
     private var awaitingNewPairingConnection = false
+    private var hasShownBluetoothAlert = false
+    private var bluetoothOffDebounceTimer: Timer?
+    private static let bluetoothOffDebounceDelay: TimeInterval = 5.0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         notificationManager.requestAuthorization()
@@ -60,6 +66,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarController.isLaunchAtLoginEnabled = {
             SMAppService.mainApp.status == .enabled
         }
+        statusBarController.onToggleImageSync = { [weak self] in
+            self?.toggleImageSync()
+        }
+        statusBarController.isImageSyncEnabled = { [weak self] in
+            guard let self, let secret = self.connectedSecret else { return false }
+            return self.pairingManager.loadDevices().first(where: { $0.sharedSecret == secret })?.richMediaEnabled ?? false
+        }
+        statusBarController.isDeviceConnected = { [weak self] in
+            self?.connectedSecret != nil
+        }
         pairingWindowController.onDidClose = { [weak self] in
             self?.handlePairingWindowClosed()
         }
@@ -79,6 +95,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardMonitor = ClipboardMonitor { [weak self] text in
             self?.onClipboardChange(text)
         }
+        clipboardMonitor?.onImageChange = { [weak self] imageData, contentType, hash in
+            guard let self = self else { return }
+            guard self.lastReceivedImageHash != hash else { return }
+            guard self.activeSettingsProvider?.isRichMediaEnabled() == true else { return }
+            self.activeSession?.sendImage(imageData, contentType: contentType)
+        }
 
         // Start scanning and monitoring
         // ConnectionManager starts scanning automatically when Bluetooth powers on
@@ -89,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        bluetoothOffDebounceTimer?.invalidate()
         clipboardMonitor?.stop()
         activeSession?.close()
         connectionManager?.disconnect()
@@ -111,19 +134,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Clipboard Change → Session
 
     private func onClipboardChange(_ text: String) {
-        guard let token = connectedSecret else {
+        guard connectedSecret != nil else {
             appLogger.debug("[App] Clipboard changed but no connected device")
             return
         }
-        guard let key = pairingManager.encryptionKey(for: token) else {
-            appLogger.error("[App] No encryption key for connected token")
-            return
-        }
         guard let plainData = text.data(using: .utf8) else { return }
-        guard let encrypted = try? E2ECrypto.seal(plainData, key: key) else {
-            appLogger.error("[App] Failed to encrypt clipboard data")
-            return
-        }
 
         // Dedup: skip if we just received this exact text from the remote side
         let hash = SHA256.hash(data: Data(text.utf8))
@@ -134,15 +149,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Retain for retry after reconnect
-        pendingClipboardPayload = encrypted
+        // Retain for retry after reconnect (plaintext, in-memory only)
+        pendingClipboardPayload = plainData
 
         // Try to send immediately
         if let session = activeSession {
-            session.sendClipboard(encrypted)
-            appLogger.info("[App] Queued clipboard for send (\(encrypted.count) bytes)")
+            session.sendClipboard(plainData)
+            appLogger.info("[App] Queued clipboard for send (\(plainData.count) bytes)")
         } else {
-            appLogger.info("[App] Clipboard cached for send on reconnect (\(encrypted.count) bytes)")
+            appLogger.info("[App] Clipboard cached for send on reconnect (\(plainData.count) bytes)")
         }
     }
 
@@ -221,6 +236,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         connectionManager?.startScanning()
     }
 
+    // MARK: - Bluetooth Alert
+
+    private func showBluetoothAlert(message: String, info: String) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = info
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Dismiss")
+
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.BluetoothSettings") {
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
+    // MARK: - Image Sync Toggle
+
+    private func toggleImageSync() {
+        // Determine which device to toggle — prefer connected, fall back to first paired
+        let secret = connectedSecret ?? pairingManager.loadDevices().first?.sharedSecret
+        guard let secret else { return }
+
+        let devices = pairingManager.loadDevices()
+        guard let device = devices.first(where: { $0.sharedSecret == secret }) else { return }
+
+        let newEnabled = !device.richMediaEnabled
+        let changedAt = Int64(Date().timeIntervalSince1970)
+        pairingManager.setRichMediaEnabled(newEnabled, changedAt: changedAt, forSecret: secret)
+
+        // Send CONFIG_UPDATE to the remote device
+        activeSession?.sendConfigUpdate()
+
+        appLogger.info("[App] Image sync toggled to \(newEnabled)")
+    }
+
     // MARK: - Menu Helpers
 
     private func refreshTrustedPeersMenu() {
@@ -273,9 +327,13 @@ extension AppDelegate: ConnectionManagerDelegate {
         outputStream.remove(from: .main, forMode: .common)
 
         // Create session (Mac = initiator)
+        let settingsProvider = DeviceSettingsProvider(pairingManager: pairingManager, secret: token)
         let session = Session(inputStream: inputStream, outputStream: outputStream,
-                              isInitiator: true, delegate: self)
+                              isInitiator: true, delegate: self,
+                              sharedSecretHex: token)
         session.localName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+        session.settingsProvider = settingsProvider
+        activeSettingsProvider = settingsProvider
         activeSession = session
 
         // Run session on background thread
@@ -302,11 +360,55 @@ extension AppDelegate: ConnectionManagerDelegate {
         appLogger.info("[App] L2CAP channel established, starting handshake")
     }
 
+    func connectionManager(_ manager: ConnectionManager, didUpdateBluetoothState state: CBManagerState) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            switch state {
+            case .poweredOn:
+                // Cancel any pending "Bluetooth off" alert — BT recovered (e.g. after sleep/wake)
+                self.bluetoothOffDebounceTimer?.invalidate()
+                self.bluetoothOffDebounceTimer = nil
+                self.statusBarController.setBluetoothWarning(nil)
+                self.hasShownBluetoothAlert = false
+            case .poweredOff:
+                self.statusBarController.setBluetoothWarning("Bluetooth is turned off")
+                // Debounce: wait before showing the modal alert.
+                // macOS transiently reports poweredOff during sleep/wake cycles;
+                // if BT comes back within the window, the alert is cancelled.
+                if !self.hasShownBluetoothAlert && self.bluetoothOffDebounceTimer == nil {
+                    self.bluetoothOffDebounceTimer = Timer.scheduledTimer(
+                        withTimeInterval: Self.bluetoothOffDebounceDelay, repeats: false
+                    ) { [weak self] _ in
+                        guard let self else { return }
+                        self.bluetoothOffDebounceTimer = nil
+                        self.hasShownBluetoothAlert = true
+                        self.showBluetoothAlert(
+                            message: "Bluetooth is turned off",
+                            info: "ClipRelay needs Bluetooth to sync your clipboard. Please enable Bluetooth in System Settings."
+                        )
+                    }
+                }
+            case .unauthorized:
+                self.statusBarController.setBluetoothWarning("Bluetooth permission denied")
+                if !self.hasShownBluetoothAlert {
+                    self.hasShownBluetoothAlert = true
+                    self.showBluetoothAlert(
+                        message: "Bluetooth access denied",
+                        info: "ClipRelay needs Bluetooth permission. Please grant access in System Settings > Privacy & Security > Bluetooth."
+                    )
+                }
+            default:
+                break
+            }
+        }
+    }
+
     func connectionManager(_ manager: ConnectionManager, didDisconnectFor token: String) {
         appLogger.info("[App] Connection lost for token")
 
         activeSession?.close()
         activeSession = nil
+        activeSettingsProvider = nil
         connectedSecret = nil
         sessionThread = nil
 
@@ -330,7 +432,7 @@ extension AppDelegate: ConnectionManagerDelegate {
             return
         }
 
-        // Create session in pairing mode
+        // Create session in pairing mode (settingsProvider wired after pairing completes)
         let session = Session(inputStream: inputStream, outputStream: outputStream,
                               isInitiator: true, delegate: self,
                               mode: .pairing(privateKey: privateKey))
@@ -422,17 +524,9 @@ extension AppDelegate: SessionDelegate {
         }
     }
 
-    func session(_ session: Session, didReceiveClipboard encryptedBlob: Data, hash: String) {
-        guard let token = connectedSecret else {
+    func session(_ session: Session, didReceivePlaintext plaintext: Data, hash: String) {
+        guard connectedSecret != nil else {
             appLogger.error("[App] Received clipboard but no connected token")
-            return
-        }
-        guard let key = pairingManager.encryptionKey(for: token) else {
-            appLogger.error("[App] No encryption key for token")
-            return
-        }
-        guard let plaintext = try? E2ECrypto.open(encryptedBlob, key: key) else {
-            appLogger.error("[App] Failed to decrypt received clipboard")
             return
         }
         guard let text = String(data: plaintext, encoding: .utf8) else {
@@ -455,6 +549,16 @@ extension AppDelegate: SessionDelegate {
         }
     }
 
+    func session(_ session: Session, didReceiveImage data: Data, contentType: String, hash: String) {
+        lastReceivedImageHash = hash
+        appLogger.info("[App] Received image from Android (\(data.count) bytes, \(contentType))")
+
+        DispatchQueue.main.async { [weak self] in
+            self?.clipboardWriter.writeImage(data, contentType: contentType)
+            self?.statusBarController.flashSyncIndicator()
+        }
+    }
+
     func session(_ session: Session, didCompletePairingWithSecret sharedSecret: Data, remoteName: String?) {
         let secretHex = sharedSecret.map { String(format: "%02x", $0) }.joined()
 
@@ -466,6 +570,11 @@ extension AppDelegate: SessionDelegate {
         )
         pairingManager.addDevice(device)
         pairingManager.clearEphemeralKey()
+
+        // Wire settings provider now that we have the secret
+        let settingsProvider = DeviceSettingsProvider(pairingManager: pairingManager, secret: secretHex)
+        session.settingsProvider = settingsProvider
+        activeSettingsProvider = settingsProvider
 
         // Clear pairing mode and set the matched token so that if the BLE
         // connection drops, didDisconnectPeripheral properly notifies us
@@ -490,6 +599,20 @@ extension AppDelegate: SessionDelegate {
 
     func session(_ session: Session, didFailWithError error: Error) {
         appLogger.error("[App] Session error: \(error.localizedDescription)")
+
+        if case SessionError.versionMismatch = error {
+            activeSession = nil
+            sessionThread = nil
+            DispatchQueue.main.async { [weak self] in
+                self?.statusBarController.setConnectedPeers([])
+                self?.showBluetoothAlert(
+                    message: "App Update Required",
+                    info: "Your Android app needs to be updated to continue syncing. Update via Google Play."
+                )
+            }
+            return
+        }
+
         activeSession = nil
         sessionThread = nil
 
@@ -502,5 +625,25 @@ extension AppDelegate: SessionDelegate {
 
     func session(_ session: Session, alreadyHasHash hash: String) -> Bool {
         return hash == lastReceivedHash
+    }
+
+    func session(_ session: Session, didChangeRichMediaSetting enabled: Bool) {
+        appLogger.info("[App] Remote changed image sync setting to \(enabled)")
+        // The settings provider already persisted the change via resolveSettings/handleConfigUpdate.
+        // Just refresh the menu so the checkmark reflects the new state.
+        DispatchQueue.main.async { [weak self] in
+            self?.statusBarController.setConnectedPeers(self?.connectedPeers() ?? [])
+        }
+    }
+
+    private func connectedPeers() -> [PeerSummary] {
+        guard let token = connectedSecret else { return [] }
+        let deviceName = pairingManager.loadDevices().first(where: { $0.sharedSecret == token })?.displayName ?? "Android"
+        return [PeerSummary(
+            id: deviceStableID(token: token),
+            description: deviceName,
+            secret: token,
+            deviceTagHex: formattedDeviceTagHex(token: token)
+        )]
     }
 }
