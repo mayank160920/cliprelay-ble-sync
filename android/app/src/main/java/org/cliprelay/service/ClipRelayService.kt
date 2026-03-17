@@ -60,6 +60,12 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         const val ACTION_VERSION_MISMATCH = "org.cliprelay.action.VERSION_MISMATCH"
         const val ACTION_GHOST_FINISHED = "org.cliprelay.action.GHOST_FINISHED"
         const val ACTION_ACCESSIBILITY_COPY_DETECTED = "org.cliprelay.action.ACCESSIBILITY_COPY_DETECTED"
+        const val ACTION_SEND_CONFIG_UPDATE = "org.cliprelay.action.SEND_CONFIG_UPDATE"
+        const val ACTION_PUSH_IMAGE = "org.cliprelay.action.PUSH_IMAGE"
+        const val EXTRA_IMAGE_PATH = "extra_image_path"
+        const val EXTRA_MIME_TYPE = "extra_mime_type"
+        const val ACTION_RICH_MEDIA_SETTING_CHANGED = "org.cliprelay.action.RICH_MEDIA_SETTING_CHANGED"
+        const val EXTRA_RICH_MEDIA_ENABLED = "extra_rich_media_enabled"
 
         const val PREFS_NAME = "cliprelay_state"
         const val KEY_CONNECTED_DEVICE = "connected_device_name"
@@ -84,6 +90,8 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
     private var lastInboundHash: String? = null
     @Volatile
     private var lastSentTextHash: String? = null
+    @Volatile
+    private var lastReceivedImageHash: String? = null
 
     // Support
     private lateinit var clipboardWriter: ClipboardWriter
@@ -198,6 +206,19 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
             ACTION_ACCESSIBILITY_COPY_DETECTED -> {
                 handleClipboardChanged()
                 return START_STICKY
+            }
+            ACTION_SEND_CONFIG_UPDATE -> {
+                activeSession?.sendConfigUpdate()
+                return START_STICKY
+            }
+            ACTION_PUSH_IMAGE -> {
+                val imagePath = intent.getStringExtra(EXTRA_IMAGE_PATH)
+                val mimeType = intent.getStringExtra(EXTRA_MIME_TYPE) ?: "image/png"
+                if (imagePath != null) {
+                    executor.execute {
+                        pushImageToMac(imagePath, mimeType)
+                    }
+                }
             }
             ACTION_PUSH_TEXT -> {
                 clearGhostActivityInFlight()
@@ -379,7 +400,8 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
             isInitiator = false,
             this,  // SessionCallback
             mode = mode,
-            sharedSecretHex = secret
+            sharedSecretHex = secret,
+            settingsProvider = pairingStore
         )
         session.localName = android.os.Build.MODEL
         activeSession = session
@@ -509,6 +531,37 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         publishDirectShareShortcut(remoteName)
     }
 
+    override fun onRichMediaSettingChanged(enabled: Boolean) {
+        val intent = Intent(ACTION_RICH_MEDIA_SETTING_CHANGED)
+        intent.setPackage(packageName)
+        intent.putExtra(EXTRA_RICH_MEDIA_ENABLED, enabled)
+        sendBroadcast(intent)
+    }
+
+    override fun onImageSendFailed(reason: String) {
+        Log.w(TAG, "Image send failed: $reason")
+        Handler(Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(
+                this,
+                "Could not transfer image. Make sure both devices are on the same Wi-Fi network.",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    override fun onImageReceived(data: ByteArray, contentType: String, hash: String) {
+        lastReceivedImageHash = hash
+        Log.w(TAG, "Received image from Mac (${data.size} bytes, $contentType)")
+        clipboardWriter.writeImage(data, contentType)
+        sendClipboardTransferBroadcast(fromMac = true)
+    }
+
+    override fun isDeviceAwake(): Boolean {
+        val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+        return pm.isInteractive && !km.isDeviceLocked
+    }
+
     // ── Outbound (Android → Mac) ─────────────────────────────────────
 
     private fun pushPlainTextToMac(text: String) {
@@ -535,6 +588,46 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
 
         session.sendClipboard(plaintext)
         DebugSmokeProbe.onOutboundClipboardPublished(this, text)
+    }
+
+    private fun pushImageToMac(imagePath: String, mimeType: String) {
+        if (isDestroyed) return
+        val file = java.io.File(imagePath)
+        if (!file.exists()) {
+            Log.e(TAG, "Image file not found: $imagePath")
+            return
+        }
+        val imageData = file.readBytes()
+        file.delete() // clean up cache file after reading
+
+        val maxSize = 10_485_760 // 10 MB
+        if (imageData.isEmpty() || imageData.size > maxSize) {
+            Log.w(TAG, "Image too large or empty: ${imageData.size} bytes")
+            Handler(Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(this, "Image too large to send (max 10 MB)", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        val session = activeSession
+        if (session == null) {
+            Log.w(TAG, "No active session; cannot send image")
+            Handler(Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(this, "Not connected to Mac", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        if (!pairingStore.isRichMediaEnabled()) {
+            Log.w(TAG, "Rich media not enabled; cannot send image")
+            Handler(Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(this, "Image sync is not enabled", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        session.sendImage(imageData, mimeType)
+        Log.w(TAG, "Queued image for send (${imageData.size} bytes, $mimeType)")
     }
 
     // ── Pairing ────────────────────────────────────────────────────────
@@ -653,7 +746,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
             .setIcon(IconCompat.createWithResource(this, R.mipmap.ic_launcher))
             .setIntent(Intent(Intent.ACTION_SEND).apply {
                 setClass(this@ClipRelayService, org.cliprelay.ui.ShareReceiverActivity::class.java)
-                type = "text/plain"
+                type = "*/*"
                 putExtra(Intent.EXTRA_TEXT, "")
             })
             .setCategories(setOf("org.cliprelay.category.SEND_TO_MAC"))

@@ -3,6 +3,10 @@ package org.cliprelay.protocol
 // Manages a single L2CAP protocol session: handshake, clipboard offer/accept, and payload transfer.
 
 import org.cliprelay.crypto.E2ECrypto
+import org.cliprelay.tcp.NetworkUtil
+import org.cliprelay.tcp.TcpImageReceiver
+import org.cliprelay.tcp.TcpImageSender
+import org.cliprelay.tcp.TcpTransferException
 import org.json.JSONObject
 import java.io.InputStream
 import java.io.OutputStream
@@ -11,7 +15,17 @@ import java.security.PrivateKey
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.logging.Logger
 import javax.crypto.SecretKey
+
+// ── Settings Provider ───────────────────────────────────────────────
+
+/** Abstraction so Session can read/write rich-media settings without depending on PairingStore. */
+interface SettingsProvider {
+    fun isRichMediaEnabled(): Boolean
+    fun getRichMediaEnabledChangedAt(): Long
+    fun setRichMediaEnabled(enabled: Boolean, changedAt: Long)
+}
 
 // ── Session Mode ──────────────────────────────────────────────────────
 
@@ -46,8 +60,10 @@ class Session(
     private var sharedSecretHex: String? = null,
     internal var handshakeTimeoutMs: Long = 5_000L,
     internal var transferTimeoutMs: Long = 30_000L,
-    internal var pairingTimeoutMs: Long = 60_000L
+    internal var pairingTimeoutMs: Long = 60_000L,
+    private val settingsProvider: SettingsProvider? = null
 ) {
+    private val logger = Logger.getLogger("Session")
     private val closed = AtomicBoolean(false)
 
     /** Local device name sent during handshake. Set before calling performHandshake(). */
@@ -70,6 +86,15 @@ class Session(
 
     /** Queue of outbound clipboard transfers (plaintext). */
     private val outboundQueue = LinkedBlockingQueue<ByteArray>()
+
+    /** Queue of outbound image transfers: (imageData, contentType). */
+    private val imageQueue = LinkedBlockingQueue<Pair<ByteArray, String>>()
+
+    /** Queue of outbound CONFIG_UPDATE messages. */
+    private val configUpdateQueue = LinkedBlockingQueue<Message>()
+
+    /** Active TCP image receiver, if any (for cancellation on new inbound offer). */
+    private var activeReceiver: TcpImageReceiver? = null
 
     /**
      * Queue of inbound messages, populated by the reader thread.
@@ -231,6 +256,20 @@ class Session(
 
         try {
             while (!closed.get()) {
+                // Drain any queued CONFIG_UPDATE messages first
+                val configMsg = configUpdateQueue.poll()
+                if (configMsg != null) {
+                    MessageCodec.write(output, configMsg)
+                    continue
+                }
+
+                // Check for queued image transfers
+                val imageItem = imageQueue.poll()
+                if (imageItem != null) {
+                    doSendImage(imageItem.first, imageItem.second)
+                    continue
+                }
+
                 // Check for queued outbound transfers (short poll)
                 val outbound = outboundQueue.poll(50, TimeUnit.MILLISECONDS)
                 if (outbound != null) {
@@ -278,8 +317,19 @@ class Session(
 
     private fun handleInbound(msg: Message) {
         when (msg.type) {
-            MessageType.OFFER -> handleInboundOffer(msg)
-            else -> throw ProtocolException("Unexpected message type: ${msg.type}")
+            MessageType.OFFER -> {
+                val json = JSONObject(String(msg.payload))
+                val type = json.optString("type", "text/plain")
+                if (type.startsWith("image/")) {
+                    handleInboundImageOffer(msg)
+                } else {
+                    handleInboundOffer(msg)
+                }
+            }
+            MessageType.CONFIG_UPDATE -> handleConfigUpdate(msg)
+            MessageType.REJECT -> { /* handled in later task */ }
+            MessageType.ERROR -> { /* handled in later task */ }
+            else -> logger.warning("Ignoring unexpected message type: ${msg.type}")
         }
     }
 
@@ -328,6 +378,204 @@ class Session(
                 callback.onTransferComplete(hash)
             }
             else -> throw ProtocolException("Expected ACCEPT or DONE, got ${response.type}")
+        }
+    }
+
+    // ── Outbound image transfer ─────────────────────────────────────
+
+    /**
+     * Queue an image for sending. Thread-safe.
+     * The actual transfer happens in the listen loop via TCP.
+     */
+    fun sendImage(imageData: ByteArray, contentType: String) {
+        if (closed.get()) return
+        imageQueue.put(Pair(imageData, contentType))
+    }
+
+    private fun doSendImage(imageData: ByteArray, contentType: String) {
+        val key = sessionKey ?: throw ProtocolException("No session key available")
+        val hash = sha256Hex(imageData)
+        val senderIp = NetworkUtil.getLocalIpAddress()
+            ?: throw ProtocolException("No local IP address available")
+
+        // Send OFFER over BLE
+        val offerJson = JSONObject().apply {
+            put("hash", hash)
+            put("size", imageData.size)
+            put("type", contentType)
+            put("senderIp", senderIp)
+        }
+        val offer = Message(MessageType.OFFER, offerJson.toString().toByteArray())
+        MessageCodec.write(output, offer)
+
+        // Read response: ACCEPT, REJECT, or ERROR
+        val response = readWithTimeout(transferTimeoutMs)
+        when (response.type) {
+            MessageType.ACCEPT -> {
+                val acceptJson = JSONObject(String(response.payload))
+                val tcpHost = acceptJson.getString("tcpHost")
+                val tcpPort = acceptJson.getInt("tcpPort")
+
+                // Encrypt image
+                val encrypted = E2ECrypto.seal(imageData, key)
+
+                // Push via TCP with retry (2 attempts, 500ms pause)
+                var lastError: Exception? = null
+                for (attempt in 1..2) {
+                    try {
+                        TcpImageSender.send(tcpHost, tcpPort, encrypted)
+                        lastError = null
+                        break
+                    } catch (e: Exception) {
+                        lastError = e
+                        if (attempt < 2) Thread.sleep(500)
+                    }
+                }
+
+                if (lastError != null) {
+                    // Send ERROR over BLE
+                    val errorJson = JSONObject().apply {
+                        put("code", "connection_failed")
+                    }
+                    MessageCodec.write(output, Message(MessageType.ERROR, errorJson.toString().toByteArray()))
+                    callback.onImageSendFailed(lastError.message ?: "TCP connection failed")
+                    return
+                }
+
+                // Wait for DONE or ERROR
+                val done = readWithTimeout(transferTimeoutMs)
+                when (done.type) {
+                    MessageType.DONE -> {
+                        callback.onTransferComplete(hash)
+                    }
+                    MessageType.ERROR -> {
+                        val code = JSONObject(String(done.payload)).optString("code", "unknown")
+                        logger.warning("Receiver reported error after image transfer: $code")
+                        callback.onImageSendFailed("Receiver error: $code")
+                        return
+                    }
+                    else -> {
+                        logger.warning("Expected DONE or ERROR after image send, got ${done.type}")
+                        callback.onImageSendFailed("Unexpected response: ${done.type}")
+                        return
+                    }
+                }
+            }
+            MessageType.REJECT -> {
+                val rejectJson = JSONObject(String(response.payload))
+                val reason = rejectJson.optString("reason", "unknown")
+                logger.info("Image rejected: $reason")
+                callback.onImageRejected(reason)
+            }
+            MessageType.ERROR -> {
+                val errorJson = JSONObject(String(response.payload))
+                val code = errorJson.optString("code", "unknown")
+                logger.warning("Image error from receiver: $code")
+            }
+            else -> throw ProtocolException("Expected ACCEPT, REJECT, or ERROR, got ${response.type}")
+        }
+    }
+
+    // ── Inbound image transfer ──────────────────────────────────────
+
+    private fun handleInboundImageOffer(msg: Message) {
+        val json = JSONObject(String(msg.payload))
+        val contentType = json.getString("type")
+        val size = json.getInt("size")
+        val hash = json.getString("hash")
+        val senderIp = json.getString("senderIp")
+
+        // Check richMediaEnabled
+        val sp = settingsProvider
+        if (sp == null || !sp.isRichMediaEnabled()) {
+            val rejectJson = JSONObject().apply {
+                put("reason", "feature_disabled")
+            }
+            MessageCodec.write(output, Message(MessageType.REJECT, rejectJson.toString().toByteArray()))
+            return
+        }
+
+        // Check size <= 10MB
+        val maxSize = 10 * 1024 * 1024
+        if (size > maxSize) {
+            val rejectJson = JSONObject().apply {
+                put("reason", "size_exceeded")
+            }
+            MessageCodec.write(output, Message(MessageType.REJECT, rejectJson.toString().toByteArray()))
+            return
+        }
+
+        // Check device awake state (Android only)
+        if (!callback.isDeviceAwake()) {
+            val rejectJson = JSONObject().apply {
+                put("reason", "device_locked")
+            }
+            MessageCodec.write(output, Message(MessageType.REJECT, rejectJson.toString().toByteArray()))
+            return
+        }
+
+        // Cancel any in-flight transfer
+        activeReceiver?.cancel()
+
+        // GCM overhead is 28 bytes (12 nonce + 16 tag)
+        val expectedSize = size + 28
+        val receiver = TcpImageReceiver(
+            expectedSize = expectedSize,
+            allowedSenderIp = senderIp
+        )
+        activeReceiver = receiver
+
+        try {
+            val serverInfo = receiver.start()
+
+            // Send ACCEPT with TCP server info
+            val acceptJson = JSONObject().apply {
+                put("tcpHost", serverInfo.host)
+                put("tcpPort", serverInfo.port)
+            }
+            MessageCodec.write(output, Message(MessageType.ACCEPT, acceptJson.toString().toByteArray()))
+
+            // Await TCP data
+            val encrypted = receiver.receive()
+
+            // Decrypt
+            val key = sessionKey ?: throw ProtocolException("No session key available")
+            val plaintext = E2ECrypto.open(encrypted, key)
+
+            // Verify SHA-256 hash
+            val actualHash = sha256Hex(plaintext)
+            if (actualHash != hash) {
+                val errorJson = JSONObject().apply {
+                    put("code", "hash_mismatch")
+                }
+                MessageCodec.write(output, Message(MessageType.ERROR, errorJson.toString().toByteArray()))
+                return
+            }
+
+            // Send DONE
+            val doneJson = JSONObject().apply {
+                put("hash", hash)
+                put("ok", true)
+            }
+            MessageCodec.write(output, Message(MessageType.DONE, doneJson.toString().toByteArray()))
+
+            // Notify callback
+            callback.onImageReceived(plaintext, contentType, hash)
+        } catch (e: TcpTransferException) {
+            val errorJson = JSONObject().apply {
+                put("code", "transfer_failed")
+            }
+            MessageCodec.write(output, Message(MessageType.ERROR, errorJson.toString().toByteArray()))
+        } catch (e: Exception) {
+            logger.warning("Image receive failed: ${e.message}")
+            val errorJson = JSONObject().apply {
+                put("code", "transfer_failed")
+                put("message", e.message ?: "unknown")
+            }
+            MessageCodec.write(output, Message(MessageType.ERROR, errorJson.toString().toByteArray()))
+        } finally {
+            receiver.close()
+            activeReceiver = null
         }
     }
 
@@ -463,6 +711,14 @@ class Session(
             json.put("auth", authHex)
         }
 
+        // Include settings if available
+        settingsProvider?.let { sp ->
+            val settings = JSONObject()
+            settings.put("richMediaEnabled", sp.isRichMediaEnabled())
+            settings.put("richMediaEnabledChangedAt", sp.getRichMediaEnabledChangedAt())
+            json.put("settings", settings)
+        }
+
         return json.toString().toByteArray()
     }
 
@@ -496,7 +752,58 @@ class Session(
             throw ProtocolException("Authentication failed")
         }
 
+        // Resolve settings with last-write-wins
+        resolveSettings(json)
+
         return remoteEkBytes
+    }
+
+    /**
+     * Resolve remote settings using last-write-wins. If the remote has a newer
+     * `richMediaEnabledChangedAt`, persist the remote value locally.
+     */
+    private fun resolveSettings(json: JSONObject) {
+        val sp = settingsProvider ?: return
+        val remoteSettings = json.optJSONObject("settings") ?: return
+        val remoteEnabled = remoteSettings.optBoolean("richMediaEnabled", false)
+        val remoteChangedAt = remoteSettings.optLong("richMediaEnabledChangedAt", 0)
+        val localChangedAt = sp.getRichMediaEnabledChangedAt()
+        if (remoteChangedAt > localChangedAt) {
+            sp.setRichMediaEnabled(remoteEnabled, remoteChangedAt)
+            callback.onRichMediaSettingChanged(remoteEnabled)
+        }
+    }
+
+    // ── CONFIG_UPDATE ────────────────────────────────────────────────
+
+    /**
+     * Handle an inbound CONFIG_UPDATE message. Applies last-write-wins to the
+     * rich-media setting.
+     */
+    private fun handleConfigUpdate(msg: Message) {
+        val sp = settingsProvider ?: return
+        val json = JSONObject(String(msg.payload))
+        val remoteEnabled = json.optBoolean("richMediaEnabled", false)
+        val remoteChangedAt = json.optLong("richMediaEnabledChangedAt", 0)
+        val localChangedAt = sp.getRichMediaEnabledChangedAt()
+        if (remoteChangedAt > localChangedAt) {
+            sp.setRichMediaEnabled(remoteEnabled, remoteChangedAt)
+            callback.onRichMediaSettingChanged(remoteEnabled)
+        }
+    }
+
+    /**
+     * Send a CONFIG_UPDATE message with the current rich-media settings.
+     * Can be called from any thread; the message is enqueued for the listen loop.
+     */
+    fun sendConfigUpdate() {
+        if (closed.get()) return
+        val sp = settingsProvider ?: return
+        val json = JSONObject()
+        json.put("richMediaEnabled", sp.isRichMediaEnabled())
+        json.put("richMediaEnabledChangedAt", sp.getRichMediaEnabledChangedAt())
+        val msg = Message(MessageType.CONFIG_UPDATE, json.toString().toByteArray())
+        configUpdateQueue.put(msg)
     }
 
     companion object {
@@ -514,4 +821,9 @@ interface SessionCallback {
     fun onSessionError(error: Exception)
     fun hasHash(hash: String): Boolean
     fun onPairingComplete(sharedSecret: ByteArray, remoteName: String?) {}
+    fun onRichMediaSettingChanged(enabled: Boolean) {}
+    fun onImageReceived(data: ByteArray, contentType: String, hash: String) {}
+    fun onImageRejected(reason: String) {}
+    fun onImageSendFailed(reason: String) {}
+    fun isDeviceAwake(): Boolean = true
 }

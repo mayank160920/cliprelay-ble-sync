@@ -26,7 +26,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -83,11 +85,13 @@ fun ClipRelayScreen(
     autoClearEnabled: Boolean,
     autoCopyEnabled: Boolean,
     autoCopyAccessibilityEnabled: Boolean = false,
+    imageSyncEnabled: Boolean = false,
     onPairClick: () -> Unit,
     onUnpairClick: () -> Unit,
     onBurstShown: () -> Unit,
     onAutoClearSettingChanged: (Boolean) -> Unit,
     onAutoCopySettingChanged: (Boolean) -> Unit,
+    onImageSyncSettingChanged: (Boolean) -> Unit = {},
     onAutoCopyFixClick: () -> Unit = {},
     onHelpClick: () -> Unit = {},
 ) {
@@ -164,10 +168,12 @@ fun ClipRelayScreen(
                 autoClearEnabled = autoClearEnabled,
                 autoCopyEnabled = autoCopyEnabled,
                 autoCopyAccessibilityEnabled = autoCopyAccessibilityEnabled,
+                imageSyncEnabled = imageSyncEnabled,
                 onPairClick = onPairClick,
                 onUnpairClick = onUnpairClick,
                 onAutoClearSettingChanged = onAutoClearSettingChanged,
                 onAutoCopySettingChanged = onAutoCopySettingChanged,
+                onImageSyncSettingChanged = onImageSyncSettingChanged,
                 onAutoCopyFixClick = onAutoCopyFixClick
             )
             Spacer(modifier = Modifier.weight(1f))
@@ -274,10 +280,12 @@ private fun MainCard(
     autoClearEnabled: Boolean,
     autoCopyEnabled: Boolean,
     autoCopyAccessibilityEnabled: Boolean = false,
+    imageSyncEnabled: Boolean = false,
     onPairClick: () -> Unit,
     onUnpairClick: () -> Unit,
     onAutoClearSettingChanged: (Boolean) -> Unit,
     onAutoCopySettingChanged: (Boolean) -> Unit,
+    onImageSyncSettingChanged: (Boolean) -> Unit = {},
     onAutoCopyFixClick: () -> Unit = {}
 ) {
     val isPaired = state !is AppState.Unpaired
@@ -330,48 +338,50 @@ private fun MainCard(
                 color = borderColor,
                 shape = RoundedCornerShape(28.dp)
             )
-            .padding(start = 24.dp, end = 24.dp, top = 36.dp, bottom = 28.dp)
+            .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 24.dp)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // App icon above title
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Aqua),
-                contentAlignment = Alignment.Center
+            // App icon + title inline, centered
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Image(
-                    painter = painterResource(R.mipmap.ic_launcher_foreground),
-                    contentDescription = "ClipRelay icon",
-                    modifier = Modifier.size(64.dp)
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(15.dp))
+                        .background(Aqua),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(R.mipmap.ic_launcher_foreground),
+                        contentDescription = "ClipRelay icon",
+                        modifier = Modifier.size(48.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "ClipRelay",
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Teal
                 )
             }
-            Spacer(modifier = Modifier.height(12.dp))
-            // Title
-            Text(
-                text = "ClipRelay",
-                fontSize = 34.sp,
-                fontWeight = FontWeight.Bold,
-                color = Teal,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Seamless clipboard sharing with your Mac",
-                fontSize = 15.sp,
+                fontSize = 13.sp,
                 color = if (isPaired) Teal.copy(alpha = 0.45f) else Color(0x66000000),
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
             HorizontalDivider(
                 color = if (isPaired) Color(0x1400FFD5) else Color(0x0F00FFD5),
                 thickness = 1.dp
             )
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Device row with background lock watermark when connected
             val lockAlpha by animateColorAsState(
@@ -475,7 +485,7 @@ private fun MainCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Action button
             if (!isPaired) {
@@ -531,6 +541,11 @@ private fun MainCard(
             AutoClearSettingRow(
                 enabled = autoClearEnabled,
                 onEnabledChange = onAutoClearSettingChanged
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            ImageSyncSettingRow(
+                enabled = imageSyncEnabled,
+                onEnabledChange = onImageSyncSettingChanged
             )
             Spacer(modifier = Modifier.height(8.dp))
             AutoCopySettingRow(
@@ -671,6 +686,62 @@ private fun AutoCopySettingRow(
 
         // In broken state, switch toggles off (disables auto-copy)
         // In normal state, switch toggles on/off as usual
+        Switch(
+            checked = enabled,
+            onCheckedChange = onEnabledChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Teal,
+                checkedTrackColor = Aqua.copy(alpha = 0.45f),
+                checkedBorderColor = Aqua.copy(alpha = 0.60f),
+                uncheckedThumbColor = Color(0xFF7A7A7A),
+                uncheckedTrackColor = Color(0x15000000),
+                uncheckedBorderColor = Color(0x40000000)
+            )
+        )
+    }
+}
+
+@Composable
+private fun ImageSyncSettingRow(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    val toggleBg = if (enabled) Color(0x1400FFD5) else Color(0x08000000)
+    val toggleBorder = if (enabled) Color(0x2B00FFD5) else Color(0x14000000)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(toggleBg)
+            .border(1.dp, toggleBorder, RoundedCornerShape(18.dp))
+            .toggleable(
+                value = enabled,
+                role = Role.Switch,
+                onValueChange = onEnabledChange
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.image_sync_setting_title),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xCC000000)
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = stringResource(R.string.image_sync_setting_subtitle),
+                fontSize = 12.sp,
+                color = Color(0x80000000),
+                lineHeight = 16.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
         Switch(
             checked = enabled,
             onCheckedChange = onEnabledChange,
