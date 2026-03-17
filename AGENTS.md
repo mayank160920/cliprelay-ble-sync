@@ -2,6 +2,7 @@
 
 ## Commit Policy
 - When the worktree has unrelated changes, commit only files relevant to the task.
+- Never commit directly on the main branch, unless explicitly given permission by the user.
 
 ## Build Verification
 - After completing any set of code changes, ALWAYS run `scripts/build-all.sh` before reporting completion.

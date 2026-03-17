@@ -199,6 +199,7 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         viewModel.onAccessibilityStateChanged(isAccessibilityServiceEnabled())
+        viewModel.onImageSyncSettingChanged(PairingStore(this).isRichMediaEnabled())
         val queryIntent = Intent(this, ClipRelayService::class.java)
         queryIntent.action = ClipRelayService.ACTION_QUERY_CONNECTION
         startServiceSafely(queryIntent)
