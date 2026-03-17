@@ -142,7 +142,10 @@ enum MessageCodec {
         var totalRead = 0
 
         while totalRead < count {
-            let read = stream.read(&buffer + totalRead, maxLength: count - totalRead)
+            let read = buffer.withUnsafeMutableBufferPointer { rawBuffer -> Int in
+                guard let baseAddress = rawBuffer.baseAddress else { return -1 }
+                return stream.read(baseAddress.advanced(by: totalRead), maxLength: count - totalRead)
+            }
             if read <= 0 {
                 throw onFail
             }
