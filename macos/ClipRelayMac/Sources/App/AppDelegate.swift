@@ -280,15 +280,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
 
-
     private func showLatestMessages() {
-        let dummyMessages = [
-            "Alex: Are we still meeting at 6 PM?",
-            "Mom: Don’t forget to pick up groceries on your way home.",
-            "ClipRelay QA Bot: Dummy SMS sync payload #42 ready for preview.",
-            "Sam: Sent you the design notes—check when you can."
-        ]
-        messagesWindowController.show(messages: dummyMessages)
+        guard let session = activeSession else {
+            messagesWindowController.showError("No connected Android device.")
+            return
+        }
+        messagesWindowController.showLoading()
+        session.requestLatestMessages(limit: 10)
     }
 
     // MARK: - Menu Helpers
@@ -562,6 +560,40 @@ extension AppDelegate: SessionDelegate {
             self?.clipboardWriter.writeText(text)
             self?.notificationManager.postClipboardReceived(text: text)
             self?.statusBarController.flashSyncIndicator()
+        }
+    }
+
+
+    func session(_ session: Session, didReceiveSmsSyncResponse messagesJSON: Data) {
+        do {
+            guard let json = try JSONSerialization.jsonObject(with: messagesJSON) as? [String: Any] else {
+                throw SessionError.protocolError("Invalid SMS response payload")
+            }
+
+            let ok = json["ok"] as? Bool ?? false
+            if !ok {
+                let message = (json["errorMessage"] as? String) ?? "Failed to fetch messages on Android."
+                DispatchQueue.main.async { [weak self] in
+                    self?.messagesWindowController.showError(message)
+                }
+                return
+            }
+
+            let entries = (json["messages"] as? [[String: Any]] ?? []).map { item in
+                SyncedMessage(
+                    address: item["address"] as? String ?? "Unknown",
+                    body: item["body"] as? String ?? "",
+                    timestampMs: (item["timestampMs"] as? NSNumber)?.int64Value ?? 0
+                )
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                self?.messagesWindowController.show(messages: entries)
+            }
+        } catch {
+            DispatchQueue.main.async { [weak self] in
+                self?.messagesWindowController.showError("Invalid SMS sync response: \(error.localizedDescription)")
+            }
         }
     }
 

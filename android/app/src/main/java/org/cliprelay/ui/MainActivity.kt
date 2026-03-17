@@ -256,6 +256,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestRuntimePermissions() {
         val permissions = BlePermissions.requiredRuntimePermissions().toMutableList()
+        permissions.add(Manifest.permission.READ_SMS)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }

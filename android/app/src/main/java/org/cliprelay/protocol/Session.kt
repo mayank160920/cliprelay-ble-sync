@@ -93,6 +93,9 @@ class Session(
     /** Queue of outbound CONFIG_UPDATE messages. */
     private val configUpdateQueue = LinkedBlockingQueue<Message>()
 
+    /** Queue of outbound SMS_SYNC_RESPONSE messages. */
+    private val smsSyncResponseQueue = LinkedBlockingQueue<Message>()
+
     /** Active TCP image receiver, if any (for cancellation on new inbound offer). */
     private var activeReceiver: TcpImageReceiver? = null
 
@@ -256,10 +259,16 @@ class Session(
 
         try {
             while (!closed.get()) {
-                // Drain any queued CONFIG_UPDATE messages first
+                // Drain control messages first
                 val configMsg = configUpdateQueue.poll()
                 if (configMsg != null) {
                     MessageCodec.write(output, configMsg)
+                    continue
+                }
+
+                val smsMsg = smsSyncResponseQueue.poll()
+                if (smsMsg != null) {
+                    MessageCodec.write(output, smsMsg)
                     continue
                 }
 
@@ -327,6 +336,8 @@ class Session(
                 }
             }
             MessageType.CONFIG_UPDATE -> handleConfigUpdate(msg)
+            MessageType.SMS_SYNC_REQUEST -> handleSmsSyncRequest(msg)
+            MessageType.SMS_SYNC_RESPONSE -> logger.warning("Ignoring unexpected SMS_SYNC_RESPONSE on Android")
             MessageType.REJECT -> { /* handled in later task */ }
             MessageType.ERROR -> { /* handled in later task */ }
             else -> logger.warning("Ignoring unexpected message type: ${msg.type}")
@@ -806,6 +817,26 @@ class Session(
         configUpdateQueue.put(msg)
     }
 
+
+
+    private fun handleSmsSyncRequest(msg: Message) {
+        val json = JSONObject(String(msg.payload))
+        val limit = json.optInt("limit", 10).coerceIn(1, 50)
+        callback.onSmsSyncRequested(limit)
+    }
+
+    /**
+     * Send SMS_SYNC_RESPONSE with encrypted JSON payload.
+     * Can be called from any thread; message is enqueued for the listen loop.
+     */
+    fun sendSmsSyncResponse(jsonPayload: String) {
+        if (closed.get()) return
+        val key = sessionKey ?: return
+        val encrypted = E2ECrypto.seal(jsonPayload.toByteArray(Charsets.UTF_8), key)
+        val msg = Message(MessageType.SMS_SYNC_RESPONSE, encrypted)
+        smsSyncResponseQueue.put(msg)
+    }
+
     companion object {
         internal fun sha256Hex(data: ByteArray): String {
             val digest = java.security.MessageDigest.getInstance("SHA-256")
@@ -825,5 +856,6 @@ interface SessionCallback {
     fun onImageReceived(data: ByteArray, contentType: String, hash: String) {}
     fun onImageRejected(reason: String) {}
     fun onImageSendFailed(reason: String) {}
+    fun onSmsSyncRequested(limit: Int) {}
     fun isDeviceAwake(): Boolean = true
 }

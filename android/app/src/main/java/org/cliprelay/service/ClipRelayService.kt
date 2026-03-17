@@ -2,6 +2,7 @@ package org.cliprelay.service
 
 // Foreground service that orchestrates BLE advertising, L2CAP connections, and clipboard sync.
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -13,6 +14,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import android.os.Handler
 import android.os.IBinder
@@ -37,6 +39,8 @@ import org.cliprelay.protocol.SessionCallback
 import org.cliprelay.protocol.SessionMode
 import org.cliprelay.protocol.VersionMismatchException
 import org.cliprelay.settings.ClipboardSettingsStore
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.Executors
@@ -97,6 +101,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
     private lateinit var clipboardWriter: ClipboardWriter
     private lateinit var clipboardSettingsStore: ClipboardSettingsStore
     private lateinit var pairingStore: PairingStore
+    private lateinit var smsSyncReader: SmsSyncReader
     private val executor = Executors.newSingleThreadExecutor()
     private val clipboardAutoClearHandler = Handler(Looper.getMainLooper())
     private var pendingClipboardAutoClear: Runnable? = null
@@ -140,6 +145,7 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         clipboardWriter = ClipboardWriter(this)
         clipboardSettingsStore = ClipboardSettingsStore(this)
         pairingStore = PairingStore(this)
+        smsSyncReader = SmsSyncReader(this)
 
         loadPairingState()
         DebugSmokeProbe.reset(this)
@@ -554,6 +560,43 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
         Log.w(TAG, "Received image from Mac (${data.size} bytes, $contentType)")
         clipboardWriter.writeImage(data, contentType)
         sendClipboardTransferBroadcast(fromMac = true)
+    }
+
+
+    override fun onSmsSyncRequested(limit: Int) {
+        val session = activeSession ?: return
+        executor.execute {
+            val response = JSONObject()
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
+                response.put("ok", false)
+                response.put("errorCode", "permission_denied")
+                response.put("errorMessage", "READ_SMS permission is not granted on Android")
+                session.sendSmsSyncResponse(response.toString())
+                return@execute
+            }
+
+            runCatching {
+                smsSyncReader.readLatest(limit)
+            }.onSuccess { messages ->
+                val items = JSONArray()
+                messages.forEach { msg ->
+                    items.put(JSONObject().apply {
+                        put("address", msg.address)
+                        put("body", msg.body)
+                        put("timestampMs", msg.timestampMs)
+                    })
+                }
+                response.put("ok", true)
+                response.put("messages", items)
+                session.sendSmsSyncResponse(response.toString())
+            }.onFailure { error ->
+                Log.e(TAG, "Failed reading SMS for sync", error)
+                response.put("ok", false)
+                response.put("errorCode", "read_failed")
+                response.put("errorMessage", error.message ?: "Failed to read SMS")
+                session.sendSmsSyncResponse(response.toString())
+            }
+        }
     }
 
     override fun isDeviceAwake(): Boolean {

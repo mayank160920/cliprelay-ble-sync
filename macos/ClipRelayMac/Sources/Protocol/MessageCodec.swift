@@ -15,6 +15,8 @@ enum MessageType: UInt8 {
     case configUpdate = 0x14
     case reject = 0x15
     case error = 0x16
+    case smsSyncRequest = 0x20
+    case smsSyncResponse = 0x21
 }
 
 struct Message {

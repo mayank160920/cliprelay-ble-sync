@@ -26,6 +26,7 @@ protocol SessionDelegate: AnyObject {
     func session(_ session: Session, didChangeRichMediaSetting enabled: Bool)
     func session(_ session: Session, didReceiveImage data: Data, contentType: String, hash: String)
     func session(_ session: Session, imageWasRejected reason: String)
+    func session(_ session: Session, didReceiveSmsSyncResponse messagesJSON: Data)
 }
 
 extension SessionDelegate {
@@ -33,6 +34,7 @@ extension SessionDelegate {
     func session(_ session: Session, didReceiveImage data: Data, contentType: String, hash: String) {}
     func session(_ session: Session, imageWasRejected reason: String) {}
     func session(_ session: Session, imageSendFailed reason: String) {}
+    func session(_ session: Session, didReceiveSmsSyncResponse messagesJSON: Data) {}
 }
 
 // MARK: - Session Errors
@@ -98,6 +100,7 @@ final class Session {
     /// Queue of outbound image transfers: (imageData, contentType).
     private var imageQueue: [(Data, String)] = []
     private var configUpdateQueue: [Message] = []
+    private var smsSyncRequestQueue: [Message] = []
     private let queueLock = NSLock()
 
     /// Active TCP image receiver, if any (for cancellation on new inbound offer).
@@ -280,9 +283,13 @@ final class Session {
     func listenForMessages() {
         do {
             while !closed {
-                // Drain any queued CONFIG_UPDATE messages first
+                // Drain control messages first
                 if let configMsg = dequeueConfigUpdate() {
                     try writeMessage(configMsg)
+                    continue
+                }
+                if let smsMsg = dequeueSmsSyncRequest() {
+                    try writeMessage(smsMsg)
                     continue
                 }
 
@@ -329,6 +336,10 @@ final class Session {
             }
         case .configUpdate:
             handleConfigUpdate(msg)
+        case .smsSyncResponse:
+            try handleSmsSyncResponse(msg)
+        case .smsSyncRequest:
+            logger.warning("Ignoring unexpected inbound SMS_SYNC_REQUEST on macOS")
         case .reject:
             break // handled in later task
         case .error:
@@ -366,6 +377,36 @@ final class Session {
         queueLock.lock()
         configUpdateQueue.append(msg)
         queueLock.unlock()
+    }
+
+
+
+    /// Request latest SMS messages from Android.
+    /// Can be called from any thread; the message is enqueued for the listen loop.
+    func requestLatestMessages(limit: Int = 10) {
+        guard !closed else { return }
+        let safeLimit = max(1, min(limit, 50))
+        let payload: [String: Any] = ["limit": safeLimit]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        let msg = Message(type: .smsSyncRequest, payload: data)
+        queueLock.lock()
+        smsSyncRequestQueue.append(msg)
+        queueLock.unlock()
+    }
+
+    private func dequeueSmsSyncRequest() -> Message? {
+        queueLock.lock()
+        defer { queueLock.unlock() }
+        if smsSyncRequestQueue.isEmpty { return nil }
+        return smsSyncRequestQueue.removeFirst()
+    }
+
+    private func handleSmsSyncResponse(_ msg: Message) throws {
+        guard let key = sessionKey else {
+            throw SessionError.protocolError("No session key available")
+        }
+        let plaintext = try E2ECrypto.open(msg.payload, key: key)
+        delegate?.session(self, didReceiveSmsSyncResponse: plaintext)
     }
 
     // MARK: - Outbound Transfer
