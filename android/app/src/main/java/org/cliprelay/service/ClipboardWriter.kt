@@ -3,10 +3,12 @@ package org.cliprelay.service
 // Writes received text or images to the Android system clipboard on the main thread.
 
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.PersistableBundle
 import androidx.core.content.FileProvider
 import java.io.File
 
@@ -22,6 +24,9 @@ class ClipboardWriter(context: Context) {
     fun writeText(text: String) {
         val applyWrite = {
             val clip = ClipData.newPlainText(CLIP_LABEL, text)
+            clip.description.extras = PersistableBundle().apply {
+                putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+            }
             runCatching { clipboard.setPrimaryClip(clip) }
             Unit
         }

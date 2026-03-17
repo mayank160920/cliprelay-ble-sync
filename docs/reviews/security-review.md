@@ -40,13 +40,13 @@ Both HKDF implementations use no salt (macOS omits it; Android uses all-zeros). 
 
 **Resolution:** Accepted risk. With 256-bit IKM, RFC 5869 confirms salt is optional when input key material has sufficient entropy. Adding a salt would break existing pairings for zero practical security gain.
 
-#### M-2: Notification preview leaks clipboard content
+#### M-2: ~~Notification preview leaks clipboard content~~ — FIXED
 
-**Files:** `macos/.../App/ReceiveNotificationManager.swift:17-31`
+**Files:** `android/.../service/ClipboardWriter.kt:26-28`
 
-The notification body contains `String(text.prefix(80))` — the first 80 characters of received clipboard text. Visible on the lock screen by default.
+~~The notification body contains `String(text.prefix(80))` — the first 80 characters of received clipboard text. Visible on the lock screen by default.~~
 
-**Fix:** Use a generic body like "Clipboard received from [device]" without content preview.
+**Resolution:** Text clipboard writes are marked with `ClipDescription.EXTRA_IS_SENSITIVE`, which tells Android to redact the content preview in the system clipboard overlay. Image clipboard writes are left unredacted.
 
 #### M-3: SecItemUpdate path doesn't set kSecAttrAccessible
 
@@ -160,9 +160,8 @@ External CSS from `fonts.googleapis.com` without `integrity` attribute. SRI is i
 
 ### Quick wins
 
-1. **M-2** — Remove clipboard preview from notifications
-2. **M-4** — Guard poll interval env var behind `#if DEBUG`
-3. **M-8** — Fix `registerReceiver` to use `RECEIVER_NOT_EXPORTED`
+1. **M-4** — Guard poll interval env var behind `#if DEBUG`
+2. **M-8** — Fix `registerReceiver` to use `RECEIVER_NOT_EXPORTED`
 
 ### Moderate effort
 
@@ -175,3 +174,4 @@ External CSS from `fonts.googleapis.com` without `integrity` attribute. SRI is i
 
 - ~~**H-1** — Mutual authentication~~ — Fixed in protocol v2 (HMAC-SHA256 in HELLO/WELCOME)
 - ~~**M-11** — Forward secrecy~~ — Fixed in protocol v2 (per-session ephemeral X25519 ECDH)
+- ~~**M-2** — Clipboard preview leak~~ — Fixed with `EXTRA_IS_SENSITIVE` on text clipboard writes
