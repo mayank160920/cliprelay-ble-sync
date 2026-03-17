@@ -326,6 +326,22 @@
           <p>ClipRelay's source code is publicly available. Review every line, verify our security claims, or inspect the encryption yourself on <a href="https://github.com/geekflyer/cliprelay" target="_blank" rel="noopener">GitHub</a>.</p>
         </div>
 
+        <div class="feature-card reveal" data-delay="1">
+          <div class="feature-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          </div>
+          <h3>Image Sync <span style="font-size:.65em;opacity:.7;font-weight:400">(experimental)</span></h3>
+          <p>Transfer images (PNG &amp; JPEG, up to 10 MB) between devices. Uses a temporary local WiFi connection for speed, with BLE for signaling &mdash; still fully encrypted, still no cloud.</p>
+        </div>
+
+        <div class="feature-card reveal" data-delay="2">
+          <div class="feature-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/><path d="M8 6h8"/></svg>
+          </div>
+          <h3>Auto-Copy on Android <span style="font-size:.65em;opacity:.7;font-weight:400">(experimental)</span></h3>
+          <p>Automatically detects when you copy text on Android and syncs it to your Mac &mdash; no manual sharing required. Enable it in the app settings.</p>
+        </div>
+
       </div>
     </div>
   </section>
@@ -382,8 +398,14 @@
               <td>Good luck &#129310;</td>
             </tr>
             <tr>
+              <td>Image support</td>
+              <td class="highlight"><span class="check">&#10003;</span> Experimental</td>
+              <td><span class="check">&#10003;</span></td>
+              <td><span class="check">&#10003;</span></td>
+            </tr>
+            <tr>
               <td>Connection</td>
-              <td class="highlight">Bluetooth Low Energy</td>
+              <td class="highlight">BLE + local WiFi for images</td>
               <td>Bluetooth Low Energy + AWDL</td>
               <td>WiFi (router)</td>
             </tr>
@@ -406,7 +428,8 @@
           <div class="comparison-row"><span class="label">Cloud free</span><span class="value check">&#10003;</span></div>
           <div class="comparison-row"><span class="label">Works on Android</span><span class="value check">&#10003;</span></div>
           <div class="comparison-row"><span class="label">Works on Mac</span><span class="value check">&#10003;</span></div>
-          <div class="comparison-row"><span class="label">Connection</span><span class="value">Bluetooth Low Energy</span></div>
+          <div class="comparison-row"><span class="label">Image support</span><span class="value check">Experimental</span></div>
+          <div class="comparison-row"><span class="label">Connection</span><span class="value">BLE + local WiFi for images</span></div>
           <div class="comparison-row"><span class="label">Free</span><span class="value check">&#10003;</span></div>
         </div>
         <div class="comparison-card">
@@ -416,6 +439,7 @@
           <div class="comparison-row"><span class="label">Cloud free</span><span class="value cross">&#10007; iCloud</span></div>
           <div class="comparison-row"><span class="label">Works on Android</span><span class="value cross">&#10007; Apple only</span></div>
           <div class="comparison-row"><span class="label">Works on Mac</span><span class="value check">&#10003;</span></div>
+          <div class="comparison-row"><span class="label">Image support</span><span class="value check">&#10003;</span></div>
           <div class="comparison-row"><span class="label">Connection</span><span class="value">Bluetooth Low Energy + AWDL</span></div>
           <div class="comparison-row"><span class="label">Free</span><span class="value check">&#10003;</span></div>
         </div>
@@ -426,6 +450,7 @@
           <div class="comparison-row"><span class="label">Cloud free</span><span class="value check">&#10003;</span></div>
           <div class="comparison-row"><span class="label">Works on Android</span><span class="value check">&#10003;</span></div>
           <div class="comparison-row"><span class="label">Works on Mac</span><span class="value">Good luck &#129310;</span></div>
+          <div class="comparison-row"><span class="label">Image support</span><span class="value check">&#10003;</span></div>
           <div class="comparison-row"><span class="label">Connection</span><span class="value">WiFi (router)</span></div>
           <div class="comparison-row"><span class="label">Free</span><span class="value check">&#10003;</span></div>
         </div>
@@ -468,12 +493,12 @@
 
         <details class="faq-item reveal">
           <summary>What types of content can I sync?</summary>
-          <div class="faq-answer">Currently, ClipRelay syncs plain text content. This includes URLs, code snippets, passwords, addresses, and any other text you copy. Rich content support (images, files) is planned for a future update.</div>
+          <div class="faq-answer">ClipRelay syncs plain text (URLs, code snippets, passwords, addresses, etc.) over Bluetooth. With the experimental Image Sync feature enabled, you can also transfer images (PNG &amp; JPEG, up to 10 MB) &mdash; these are sent over a temporary local WiFi connection for speed, while BLE handles the signaling. Both devices need to be on the same WiFi network for image transfers.</div>
         </details>
 
         <details class="faq-item reveal">
           <summary>Does it work without WiFi?</summary>
-          <div class="faq-answer">Yes! ClipRelay uses Bluetooth Low Energy, which is completely independent of WiFi and cellular data. It works in airplane mode, offline, or anywhere — as long as Bluetooth is enabled on both devices.</div>
+          <div class="faq-answer">Yes! Text clipboard sync uses Bluetooth Low Energy, which is completely independent of WiFi and cellular data. It works in airplane mode, offline, or anywhere &mdash; as long as Bluetooth is enabled on both devices. The experimental Image Sync feature does require both devices to be on the same WiFi network for the actual image transfer.</div>
         </details>
 
         <details class="faq-item reveal">
@@ -483,12 +508,12 @@
 
         <details class="faq-item reveal">
           <summary>What permissions does ClipRelay need?</summary>
-          <div class="faq-answer">Almost none. The Android app only requests Bluetooth Low Energy and notification permissions — no internet, no location, no storage, no contacts. The Mac app runs in Apple's App Sandbox with Bluetooth as its only entitlement. ClipRelay asks for the bare minimum needed to sync your clipboard.</div>
+          <div class="faq-answer">Almost none. The Android app requests Bluetooth Low Energy and notification permissions. If you enable the experimental Auto-Copy feature, it also needs the Accessibility Service permission to detect copy actions. If you enable Image Sync, local network access is used for the image transfer. The Mac app runs in Apple's App Sandbox with Bluetooth and local network as its entitlements. ClipRelay asks for the bare minimum needed to sync your clipboard.</div>
         </details>
 
         <details class="faq-item reveal">
           <summary>Is ClipRelay free?</summary>
-          <div class="faq-answer">Yes, ClipRelay is completely free. There are no ads, subscriptions, or hidden fees. Pro features like rich content transfer may be offered in the future, but the core clipboard sync will always be free.</div>
+          <div class="faq-answer">Yes, ClipRelay is completely free. There are no ads, subscriptions, or hidden fees.</div>
         </details>
       </div>
     </div>

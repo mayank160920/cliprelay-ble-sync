@@ -20,7 +20,9 @@ Copy on one device, paste on the other. ClipRelay syncs your clipboard between A
 - **End-to-end encrypted** — AES-256-GCM encryption. ECDH key exchange (X25519) during pairing.
 - **Bluetooth only** — direct BLE transfer, no WiFi or internet needed
 - **No cloud, no servers** — your clipboard data never leaves the connection between your devices
-- **Text only** — up to 100 KiB per transfer
+- **Text clipboard** — up to 100 KiB per transfer over BLE
+- **Image sync** *(experimental)* — transfer images (PNG/JPEG, up to 10 MB) between devices over a temporary local WiFi connection, with BLE for signaling. Both devices must be on the same WiFi network.
+- **Auto-copy on Android** *(experimental)* — automatically detects when you copy text on Android and syncs it to your Mac, no manual sharing needed. Uses Android's accessibility service.
 
 ## Screenshots
 
@@ -50,6 +52,14 @@ Copy on one device, paste on the other. ClipRelay syncs your clipboard between A
 4. Done — clipboard sharing is automatic:
    - **Mac to Android:** copy text on Mac, it syncs automatically.
    - **Android to Mac:** select text on Android, Share → ClipRelay.
+
+### Image sync *(experimental)*
+
+Image transfer uses a temporary TCP connection over your local WiFi (not Bluetooth) for speed. Both devices must be on the same WiFi network. Enable "Image Sync" in the paired device settings on both devices. When you copy an image on your Mac or share one from Android, it transfers encrypted over your local network — still AES-256-GCM encrypted, still no cloud.
+
+### Auto-copy on Android *(experimental)*
+
+By default, Android clipboard sharing requires manually using Share → ClipRelay. With auto-copy enabled, ClipRelay detects when you copy text on Android and automatically syncs it to your Mac — just like the Mac-to-Android direction. Enable it in the Android app settings. This feature requires granting the Accessibility Service permission.
 
 ## Building from source
 
