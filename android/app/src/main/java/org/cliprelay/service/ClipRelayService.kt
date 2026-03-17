@@ -565,6 +565,9 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
 
     override fun onSmsSyncRequested(limit: Int) {
         val session = activeSession ?: return
+        Handler(Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(this, "Syncing latest messages to Mac…", android.widget.Toast.LENGTH_SHORT).show()
+        }
         executor.execute {
             val response = JSONObject()
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
@@ -572,6 +575,9 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
                 response.put("errorCode", "permission_denied")
                 response.put("errorMessage", "READ_SMS permission is not granted on Android")
                 session.sendSmsSyncResponse(response.toString())
+                Handler(Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(this, "SMS sync failed: SMS permission missing", android.widget.Toast.LENGTH_SHORT).show()
+                }
                 return@execute
             }
 
@@ -595,6 +601,9 @@ class ClipRelayService : Service(), L2capServerCallback, SessionCallback {
                 response.put("errorCode", "read_failed")
                 response.put("errorMessage", error.message ?: "Failed to read SMS")
                 session.sendSmsSyncResponse(response.toString())
+                Handler(Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(this, "SMS sync failed", android.widget.Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }

@@ -24,16 +24,18 @@ class SmsSyncReader(private val context: Context) {
             projection,
             null,
             null,
-            "${Telephony.Sms.DEFAULT_SORT_ORDER} LIMIT $safeLimit"
+            Telephony.Sms.DEFAULT_SORT_ORDER
         )?.use { cursor ->
             val addressIdx = cursor.getColumnIndex(Telephony.Sms.ADDRESS)
             val bodyIdx = cursor.getColumnIndex(Telephony.Sms.BODY)
             val dateIdx = cursor.getColumnIndex(Telephony.Sms.DATE)
-            while (cursor.moveToNext()) {
+            var count = 0
+            while (cursor.moveToNext() && count < safeLimit) {
                 val address = if (addressIdx >= 0) cursor.getString(addressIdx) ?: "Unknown" else "Unknown"
                 val body = if (bodyIdx >= 0) cursor.getString(bodyIdx) ?: "" else ""
                 val timestamp = if (dateIdx >= 0) cursor.getLong(dateIdx) else 0L
                 messages.add(SmsSyncEntry(address = address, body = body, timestampMs = timestamp))
+                count += 1
             }
         }
 
