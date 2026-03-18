@@ -28,22 +28,30 @@ final class MessagesWindowController {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func show(messages: [SyncedMessage]) {
+    func show(messages: [SyncedMessage], rawResponse: String? = nil) {
         ensureWindow()
         subtitleLabel.stringValue = "Showing latest \(messages.count) messages"
 
+        var sections: [String] = []
         if messages.isEmpty {
-            textView.string = "No messages found on the Android device."
+            sections.append("No messages found on the Android device.")
         } else {
             let formatter = DateFormatter()
             formatter.dateStyle = .medium
             formatter.timeStyle = .short
-            textView.string = messages.enumerated().map { index, message in
+            let formattedMessages = messages.enumerated().map { index, message in
                 let date = Date(timeIntervalSince1970: TimeInterval(message.timestampMs) / 1000)
                 let time = formatter.string(from: date)
                 return "\(index + 1). [\(time)] \(message.address)\n\(message.body)"
             }.joined(separator: "\n\n")
+            sections.append(formattedMessages)
         }
+
+        if let rawResponse {
+            sections.append("RAW RESPONSE:\n\(rawResponse)")
+        }
+
+        textView.string = sections.joined(separator: "\n\n------------------------------\n\n")
 
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -59,10 +67,11 @@ final class MessagesWindowController {
         textView.isEditable = false
         textView.drawsBackground = false
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.textColor = .labelColor
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
         textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
 
         let titleLabel = NSTextField(labelWithString: "Latest Messages")
         titleLabel.font = .boldSystemFont(ofSize: 18)

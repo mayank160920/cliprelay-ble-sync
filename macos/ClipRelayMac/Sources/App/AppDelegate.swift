@@ -567,11 +567,12 @@ extension AppDelegate: SessionDelegate {
     func session(_ session: Session, didReceiveSmsSyncResponse messagesJSON: Data) {
         do {
             let response = try JSONDecoder().decode(SmsSyncResponse.self, from: messagesJSON)
+            let rawResponseText = String(data: messagesJSON, encoding: .utf8) ?? "<non-UTF8 payload: \(messagesJSON.count) bytes>"
 
             if !response.ok {
                 let message = response.errorMessage ?? "Failed to fetch messages on Android."
                 DispatchQueue.main.async { [weak self] in
-                    self?.messagesWindowController.showError(message)
+                    self?.messagesWindowController.showError("\(message)\n\nRAW RESPONSE:\n\(rawResponseText)")
                 }
                 return
             }
@@ -585,11 +586,12 @@ extension AppDelegate: SessionDelegate {
             }
 
             DispatchQueue.main.async { [weak self] in
-                self?.messagesWindowController.show(messages: entries)
+                self?.messagesWindowController.show(messages: entries, rawResponse: rawResponseText)
             }
         } catch {
+            let rawResponseText = String(data: messagesJSON, encoding: .utf8) ?? "<non-UTF8 payload: \(messagesJSON.count) bytes>"
             DispatchQueue.main.async { [weak self] in
-                self?.messagesWindowController.showError("Invalid SMS sync response: \(error.localizedDescription)")
+                self?.messagesWindowController.showError("Invalid SMS sync response: \(error.localizedDescription)\n\nRAW RESPONSE:\n\(rawResponseText)")
             }
         }
     }
