@@ -9,13 +9,15 @@ struct SyncedMessage {
 final class MessagesWindowController {
     private var window: NSWindow?
     private var closeDelegate: MessagesWindowCloseHandler?
-    private let textView = NSTextView(frame: .zero)
+    private var scrollObservation: NSObjectProtocol?
+    private let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 480, height: 260))
     private let subtitleLabel = NSTextField(labelWithString: "")
+    private let scrollView = NSScrollView(frame: .zero)
 
     func showLoading() {
         ensureWindow()
         subtitleLabel.stringValue = "Fetching latest messages from Android…"
-        textView.string = "Please wait…"
+        updateTextView(with: "Please wait…")
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -23,7 +25,7 @@ final class MessagesWindowController {
     func showError(_ message: String) {
         ensureWindow()
         subtitleLabel.stringValue = "Could not load messages"
-        textView.string = message
+        updateTextView(with: message)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -47,11 +49,11 @@ final class MessagesWindowController {
             sections.append(formattedMessages)
         }
 
-        if let rawResponse {
+        if messages.isEmpty, let rawResponse = rawResponse {
             sections.append("RAW RESPONSE:\n\(rawResponse)")
         }
 
-        textView.string = sections.joined(separator: "\n\n------------------------------\n\n")
+        updateTextView(with: sections.joined(separator: "\n\n------------------------------\n\n"))
 
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -65,13 +67,19 @@ final class MessagesWindowController {
 
     private func buildWindow() -> NSWindow {
         textView.isEditable = false
+        textView.isSelectable = true
         textView.drawsBackground = false
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.textColor = .labelColor
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.autoresizingMask = [.width]
+        textView.textContainerInset = NSSize(width: 0, height: 8)
         textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.containerSize = NSSize(width: 480, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.lineFragmentPadding = 0
 
         let titleLabel = NSTextField(labelWithString: "Latest Messages")
         titleLabel.font = .boldSystemFont(ofSize: 18)
@@ -79,12 +87,12 @@ final class MessagesWindowController {
         subtitleLabel.font = .systemFont(ofSize: 12)
         subtitleLabel.textColor = .secondaryLabelColor
 
-        let scrollView = NSScrollView(frame: .zero)
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.documentView = textView
         scrollView.drawsBackground = false
+        scrollView.contentView.postsBoundsChangedNotifications = true
 
         let stack = NSStackView(views: [titleLabel, subtitleLabel, scrollView])
         stack.orientation = .vertical
@@ -113,14 +121,57 @@ final class MessagesWindowController {
         newWindow.isReleasedWhenClosed = false
         newWindow.contentView = contentView
         newWindow.center()
+        newWindow.initialFirstResponder = textView
 
         let delegate = MessagesWindowCloseHandler { [weak self] in
+            if let observation = self?.scrollObservation {
+                NotificationCenter.default.removeObserver(observation)
+            }
+            self?.scrollObservation = nil
             self?.window = nil
             self?.closeDelegate = nil
         }
         closeDelegate = delegate
         newWindow.delegate = delegate
+
+        if let observation = scrollObservation {
+            NotificationCenter.default.removeObserver(observation)
+        }
+        scrollObservation = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updateTextViewLayout()
+        }
+
+        updateTextViewLayout()
         return newWindow
+    }
+
+    private func updateTextView(with text: String) {
+        textView.string = text
+        updateTextViewLayout()
+    }
+
+    private func updateTextViewLayout() {
+        guard let textContainer = textView.textContainer,
+              let layoutManager = textView.layoutManager else {
+            return
+        }
+
+        window?.contentView?.layoutSubtreeIfNeeded()
+        let contentWidth = max(scrollView.contentSize.width, 1)
+        textContainer.containerSize = NSSize(width: contentWidth, height: CGFloat.greatestFiniteMagnitude)
+        layoutManager.ensureLayout(for: textContainer)
+
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        let contentHeight = max(
+            usedRect.height + (textView.textContainerInset.height * 2),
+            scrollView.contentSize.height
+        )
+
+        textView.frame = NSRect(x: 0, y: 0, width: contentWidth, height: contentHeight)
     }
 }
 
